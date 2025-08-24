@@ -470,7 +470,7 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val (count, countSub) = AngConfigManager.importBatchConfig(server, mainViewModel.subscriptionId, true)
+                val (count, countSub) = AngConfigManager.importBatchConfig(this@MainActivity, server, mainViewModel.subscriptionId, true)
                 delay(500L)
                 withContext(Dispatchers.Main) {
                     when {

@@ -37,7 +37,7 @@ class ScScannerActivity : BaseActivity() {
     private val scanQRCode = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         if (it.resultCode == RESULT_OK) {
             val scanResult = it.data?.getStringExtra("SCAN_RESULT").orEmpty()
-            val (count, countSub) = AngConfigManager.importBatchConfig(scanResult, "", false)
+            val (count, countSub) = AngConfigManager.importBatchConfig(this@ScScannerActivity, scanResult, "", false)
 
             if (count + countSub > 0) {
                 toastSuccess(R.string.toast_success)
