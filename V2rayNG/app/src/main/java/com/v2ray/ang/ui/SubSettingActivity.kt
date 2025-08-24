@@ -62,7 +62,7 @@ class SubSettingActivity : BaseActivity() {
             binding.pbWaiting.show()
 
             lifecycleScope.launch(Dispatchers.IO) {
-                val count = AngConfigManager.updateConfigViaSubAll(this)
+                val count = AngConfigManager.updateConfigViaSubAll(applicationContext)
                 delay(500L)
                 launch(Dispatchers.Main) {
                     if (count > 0) {

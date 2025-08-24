@@ -323,7 +323,7 @@ object AngConfigManager {
      * @param append Whether to append the configurations.
      * @return A pair containing the number of configurations and subscriptions imported.
      */
-    fun importBatchConfig(server: String?, subid: String, append: Boolean): Pair<Int, Int> {
+    fun importBatchConfig(context: Context, server: String?, subid: String, append: Boolean): Pair<Int, Int> {
         var totalConfigCount = 0
         val decodedGuids = parseBatchConfig(Utils.decode(server), subid, append)
         totalConfigCount += decodedGuids.size
