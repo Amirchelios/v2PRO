@@ -23,9 +23,11 @@ import com.v2ray.ang.util.JsonUtil
 import com.v2ray.ang.util.QRCodeDecoder
 import com.v2ray.ang.util.Utils
 import com.v2ray.ang.handler.SpeedtestManager
+import com.v2ray.ang.handler.AutoSelectorManager
 import java.net.URI
 import java.net.InetSocketAddress
 import java.net.Socket
+import kotlinx.coroutines.runBlocking
 
 object AngConfigManager {
 
@@ -376,7 +378,7 @@ object AngConfigManager {
      * @param append Whether to append the configurations.
      * @return The number of configurations parsed.
      */
-    private fun parseBatchConfig(servers: String?, subid: String, append: Boolean): Int {
+    private fun parseBatchConfig(servers: String?, subid: String, append: Boolean): List<String> {
         try {
             if (servers == null) {
                 return 0
@@ -399,17 +401,17 @@ object AngConfigManager {
             }
 
             val subItem = MmkvManager.decodeSubscription(subid)
-            var count = 0
+            val newGuids = mutableListOf<String>()
             servers.lines()
                 .distinct()
                 .reversed()
                 .forEach {
-                    val resId = parseConfig(it, subid, subItem, removedSelectedServer)
-                    if (resId == 0) {
-                        count++
+                    val guid = parseConfig(it, subid, subItem, removedSelectedServer)
+                    if (guid != null) {
+                        newGuids.add(guid)
                     }
                 }
-            return count
+            return newGuids
         } catch (e: Exception) {
             Log.e(AppConfig.TAG, "Failed to parse batch config", e)
         }
@@ -490,10 +492,10 @@ object AngConfigManager {
         subid: String,
         subItem: SubscriptionItem?,
         removedSelectedServer: ProfileItem?
-    ): Int {
+    ): String? {
         try {
             if (str == null || TextUtils.isEmpty(str)) {
-                return R.string.toast_none_data
+                return null // Return null instead of resource ID for failure
             }
 
             val config = if (str.startsWith(EConfigType.VMESS.protocolScheme)) {
@@ -515,13 +517,13 @@ object AngConfigManager {
             }
 
             if (config == null) {
-                return R.string.toast_incorrect_protocol
+                return null // Return null instead of resource ID for failure
             }
             //filter
             if (subItem?.filter != null && subItem.filter?.isNotEmpty() == true && config.remarks.isNotEmpty()) {
                 val matched = Regex(pattern = subItem.filter ?: "")
                     .containsMatchIn(input = config.remarks)
-                if (!matched) return -1
+                if (!matched) return null // Return null for filtered out configs
             }
 
             config.subscriptionId = subid
@@ -535,7 +537,7 @@ object AngConfigManager {
             Log.e(AppConfig.TAG, "Failed to parse config", e)
             return -1
         }
-        return 0
+        return guid
     }
 
     /**
@@ -547,7 +549,7 @@ object AngConfigManager {
         var count = 0
         try {
             MmkvManager.decodeSubscriptions().forEach {
-                count += updateConfigViaSub(it)
+                count += updateConfigViaSub(context, it)
             }
         } catch (e: Exception) {
             Log.e(AppConfig.TAG, "Failed to update config via all subscriptions", e)
@@ -562,7 +564,7 @@ object AngConfigManager {
      * @param it The subscription item.
      * @return The number of configurations updated.
      */
-    fun updateConfigViaSub(it: Pair<String, SubscriptionItem>): Int {
+    fun updateConfigViaSub(context: Context, it: Pair<String, SubscriptionItem>): Int {
         try {
             if (TextUtils.isEmpty(it.first)
                 || TextUtils.isEmpty(it.second.remarks)
@@ -602,7 +604,7 @@ object AngConfigManager {
             if (configText.isEmpty()) {
                 return 0
             }
-            return parseConfigViaSub(configText, it.first, false)
+            return parseConfigViaSub(context, configText, it.first, false)
         } catch (e: Exception) {
             Log.e(AppConfig.TAG, "Failed to update config via subscription", e)
             return 0
@@ -617,15 +619,28 @@ object AngConfigManager {
      * @param append Whether to append the configurations.
      * @return The number of configurations parsed.
      */
-    private fun parseConfigViaSub(server: String?, subid: String, append: Boolean): Int {
-        var count = parseBatchConfig(Utils.decode(server), subid, append)
-        if (count <= 0) {
-            count = parseBatchConfig(server, subid, append)
+    private fun parseConfigViaSub(context: Context, server: String?, subid: String, append: Boolean): Int {
+        var newGuids = mutableListOf<String>()
+        newGuids.addAll(parseBatchConfig(Utils.decode(server), subid, append))
+        if (newGuids.isEmpty()) {
+            newGuids.addAll(parseBatchConfig(server, subid, append))
         }
-        if (count <= 0) {
-            count = parseCustomConfigServer(server, subid)
+        if (newGuids.isEmpty()) {
+            // parseCustomConfigServer returns an Int, not a list of GUIDs.
+            // For now, we'll just call it and not include its results in auto-selection.
+            // If custom configs need auto-selection, parseCustomConfigServer would need modification.
+            parseCustomConfigServer(server, subid)
         }
-        return count
+
+        if (newGuids.isNotEmpty()) {
+            runBlocking {
+                val selectedGuid = AutoSelectorManager.autoSelectBestProxy(context, newGuids)
+                if (selectedGuid != null) {
+                    MmkvManager.setSelectServer(selectedGuid)
+                }
+            }
+        }
+        return newGuids.size // Return the count of newly added GUIDs
     }
 
     /**
