@@ -340,7 +340,7 @@ object AngConfigManager {
             countSub = parseBatchSubscription(Utils.decode(server))
         }
         if (countSub > 0) {
-            updateConfigViaSubAll() // This will now trigger auto-selection
+            updateConfigViaSubAll(context) // This will now trigger auto-selection
         }
 
         return totalConfigCount to countSub
