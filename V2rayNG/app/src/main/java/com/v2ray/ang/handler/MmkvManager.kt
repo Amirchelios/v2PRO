@@ -26,6 +26,7 @@ object MmkvManager {
     private const val KEY_SELECTED_SERVER = "SELECTED_SERVER"
     private const val KEY_ANG_CONFIGS = "ANG_CONFIGS"
     private const val KEY_SUB_IDS = "SUB_IDS"
+    private const val AUTO_SELECTOR_REMARKS = "Auto Selector"
 
     //private val profileStorage by lazy { MMKV.mmkvWithID(ID_PROFILE_CONFIG, MMKV.MULTI_PROCESS_MODE) }
     private val mainStorage by lazy { MMKV.mmkvWithID(ID_MAIN, MMKV.MULTI_PROCESS_MODE) }
@@ -121,9 +122,20 @@ object MmkvManager {
         profileFullStorage.encode(key, JsonUtil.toJson(config))
         val serverList = decodeServerList()
         if (!serverList.contains(key)) {
-            serverList.add(0, key)
+            if (config.remarks == AUTO_SELECTOR_REMARKS) {
+                // Remove any existing auto-selector from the list to ensure only one exists and is at the top
+                val existingAutoSelectorGuid = serverList.find {
+                    decodeServerConfig(it)?.remarks == AUTO_SELECTOR_REMARKS
+                }
+                if (existingAutoSelectorGuid != null) {
+                    serverList.remove(existingAutoSelectorGuid)
+                }
+                serverList.add(0, key) // Add to the very beginning
+            } else {
+                serverList.add(0, key) // Add to the beginning for other new servers
+            }
             encodeServerList(serverList)
-            if (getSelectServer().isNullOrBlank()) {
+            if (getSelectServer().isNullOrBlank() || config.remarks == AUTO_SELECTOR_REMARKS) {
                 mainStorage.encode(KEY_SELECTED_SERVER, key)
             }
         }

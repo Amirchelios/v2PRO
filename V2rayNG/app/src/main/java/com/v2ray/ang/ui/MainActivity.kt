@@ -176,6 +176,13 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         setupViewModel()
         migrateLegacy()
 
+        // Auto-connect if "Auto Selector" is the selected server on app start
+        val selectedServerGuid = MmkvManager.getSelectServer()
+        val selectedProfile = selectedServerGuid?.let { MmkvManager.decodeServerConfig(it) }
+        if (selectedProfile?.remarks == MmkvManager.AUTO_SELECTOR_REMARKS && mainViewModel.isRunning.value != true) {
+            startV2Ray()
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 pendingAction = Action.POST_NOTIFICATIONS
