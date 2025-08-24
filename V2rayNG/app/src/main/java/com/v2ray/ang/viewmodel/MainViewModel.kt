@@ -174,10 +174,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun updateConfigViaSubAll(): Int {
         if (subscriptionId.isEmpty()) {
-            return AngConfigManager.updateConfigViaSubAll()
+            return AngConfigManager.updateConfigViaSubAll(getApplication())
         } else {
             val subItem = MmkvManager.decodeSubscription(subscriptionId) ?: return 0
-            return AngConfigManager.updateConfigViaSub(Pair(subscriptionId, subItem))
+            return AngConfigManager.updateConfigViaSub(getApplication(), Pair(subscriptionId, subItem))
         }
     }
 

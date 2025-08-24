@@ -324,23 +324,26 @@ object AngConfigManager {
      * @return A pair containing the number of configurations and subscriptions imported.
      */
     fun importBatchConfig(server: String?, subid: String, append: Boolean): Pair<Int, Int> {
-        var count = parseBatchConfig(Utils.decode(server), subid, append)
-        if (count <= 0) {
-            count = parseBatchConfig(server, subid, append)
-        }
-        if (count <= 0) {
-            count = parseCustomConfigServer(server, subid)
-        }
+        var totalConfigCount = 0
+        val decodedGuids = parseBatchConfig(Utils.decode(server), subid, append)
+        totalConfigCount += decodedGuids.size
+
+        val rawGuids = parseBatchConfig(server, subid, append)
+        totalConfigCount += rawGuids.size
+
+        // Custom configs are handled separately and don't return GUIDs directly for auto-selection
+        val customConfigCount = parseCustomConfigServer(server, subid)
+        totalConfigCount += customConfigCount
 
         var countSub = parseBatchSubscription(server)
         if (countSub <= 0) {
             countSub = parseBatchSubscription(Utils.decode(server))
         }
         if (countSub > 0) {
-            updateConfigViaSubAll()
+            updateConfigViaSubAll() // This will now trigger auto-selection
         }
 
-        return count to countSub
+        return totalConfigCount to countSub
     }
 
     /**
@@ -381,7 +384,7 @@ object AngConfigManager {
     private fun parseBatchConfig(servers: String?, subid: String, append: Boolean): List<String> {
         try {
             if (servers == null) {
-                return 0
+                return emptyList()
             }
             val removedSelectedServer =
                 if (!TextUtils.isEmpty(subid) && !append) {
@@ -415,7 +418,7 @@ object AngConfigManager {
         } catch (e: Exception) {
             Log.e(AppConfig.TAG, "Failed to parse batch config", e)
         }
-        return 0
+        return emptyList()
     }
 
     /**
@@ -493,6 +496,7 @@ object AngConfigManager {
         subItem: SubscriptionItem?,
         removedSelectedServer: ProfileItem?
     ): String? {
+        var guid: String? = null
         try {
             if (str == null || TextUtils.isEmpty(str)) {
                 return null // Return null instead of resource ID for failure
@@ -535,7 +539,7 @@ object AngConfigManager {
             }
         } catch (e: Exception) {
             Log.e(AppConfig.TAG, "Failed to parse config", e)
-            return -1
+            return null // Return null for failure
         }
         return guid
     }
@@ -545,7 +549,7 @@ object AngConfigManager {
      *
      * @return The number of configurations updated.
      */
-    fun updateConfigViaSubAll(): Int {
+    fun updateConfigViaSubAll(context: Context): Int {
         var count = 0
         try {
             MmkvManager.decodeSubscriptions().forEach {
@@ -620,17 +624,13 @@ object AngConfigManager {
      * @return The number of configurations parsed.
      */
     private fun parseConfigViaSub(context: Context, server: String?, subid: String, append: Boolean): Int {
-        var newGuids = mutableListOf<String>()
+        val newGuids = mutableListOf<String>()
         newGuids.addAll(parseBatchConfig(Utils.decode(server), subid, append))
-        if (newGuids.isEmpty()) {
-            newGuids.addAll(parseBatchConfig(server, subid, append))
-        }
-        if (newGuids.isEmpty()) {
-            // parseCustomConfigServer returns an Int, not a list of GUIDs.
-            // For now, we'll just call it and not include its results in auto-selection.
-            // If custom configs need auto-selection, parseCustomConfigServer would need modification.
-            parseCustomConfigServer(server, subid)
-        }
+        newGuids.addAll(parseBatchConfig(server, subid, append))
+
+        // Custom configs are handled separately and don't return GUIDs directly for auto-selection.
+        // We still call it to ensure custom configs are parsed and stored.
+        parseCustomConfigServer(server, subid)
 
         if (newGuids.isNotEmpty()) {
             runBlocking {
@@ -640,7 +640,7 @@ object AngConfigManager {
                 }
             }
         }
-        return newGuids.size // Return the count of newly added GUIDs
+        return newGuids.size
     }
 
     /**

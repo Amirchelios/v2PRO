@@ -53,7 +53,7 @@ object SubscriptionUpdater {
                 }
                 notificationManager.notify(3, notification.build())
                 Log.i(AppConfig.TAG, "subscription automatic update: ---${subItem.remarks}")
-                AngConfigManager.updateConfigViaSub(Pair(sub.first, subItem))
+                AngConfigManager.updateConfigViaSub(applicationContext, Pair(sub.first, subItem))
                 notification.setContentText("Updating ${subItem.remarks}")
             }
             notificationManager.cancel(3)
