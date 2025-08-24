@@ -30,6 +30,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.util.Collections
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -430,6 +431,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         reloadServerList()
     }
 
+    fun autoSelectServer() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val servers = serversCache.shuffled() // random order
+            for (server in servers) {
+                val guid = server.guid
+                val profile = server.profile
+                val address = profile.server ?: continue
+                val port = profile.serverPort?.toInt() ?: continue
+                val pingTime = SpeedtestManager.tcping(address, port)
+                if (pingTime > 0 && pingTime < 1000) { // threshold: less than 1s
+                    MmkvManager.setSelectServer(guid)
+                    MessageUtil.sendMsg2Service(getApplication(), AppConfig.MSG_STATE_START, guid)
+                    delay(5000) // wait for connection
+                    val (elapsed, result) = SpeedtestManager.testConnection(getApplication(), SettingsManager.getHttpPort() ?: 10809)
+                    if (elapsed > 0 && elapsed < 5000 && result.contains("available")) { // quality threshold: less than 5s
+                        launch(Dispatchers.Main) { getApplication<AngApplication>().toastSuccess("Connected to ${profile.remarks}") }
+                        return@launch
+                    } else {
+                        MessageUtil.sendMsg2Service(getApplication(), AppConfig.MSG_STATE_STOP, "")
+                        delay(2000) // wait for stop
+                    }
+                }
+            }
+            launch(Dispatchers.Main) { getApplication<AngApplication>().toastError("No suitable server found") }
+        }
+    }
+
     private val mMsgReceiver = object : BroadcastReceiver() {
         override fun onReceive(ctx: Context?, intent: Intent?) {
             when (intent?.getIntExtra("key", 0)) {
@@ -463,6 +491,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val resultPair = intent.serializable<Pair<String, Long>>("content") ?: return
                     MmkvManager.encodeServerTestDelayMillis(resultPair.first, resultPair.second)
                     updateListAction.value = getPosition(resultPair.first)
+                }
+                AppConfig.MSG_AUTO_SELECT -> {
+                    autoSelectServer()
                 }
             }
         }

@@ -67,6 +67,7 @@ class SubSettingActivity : BaseActivity() {
                 launch(Dispatchers.Main) {
                     if (count > 0) {
                         toastSuccess(R.string.toast_success)
+                        MessageUtil.sendMsg2UI(this@SubSettingActivity, AppConfig.MSG_AUTO_SELECT, "")
                     } else {
                         toastError(R.string.toast_failure)
                     }
