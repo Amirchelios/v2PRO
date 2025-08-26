@@ -14,6 +14,7 @@ import androidx.lifecycle.viewModelScope
 import com.v2ray.ang.AngApplication
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.R
+import com.v2ray.ang.dto.EConfigType
 import com.v2ray.ang.dto.ProfileItem
 import com.v2ray.ang.dto.ServersCache
 import com.v2ray.ang.extension.serializable
@@ -74,7 +75,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Ensure "Auto Selector" profile exists and is at the top
         var autoSelectorGuid = serverList.find { MmkvManager.decodeServerConfig(it)?.remarks == MmkvManager.AUTO_SELECTOR_REMARKS }
         if (autoSelectorGuid == null) {
-            val newProfile = ProfileItem(remarks = MmkvManager.AUTO_SELECTOR_REMARKS, configType = -1) // -1 for auto-selector
+            val newProfile = ProfileItem(remarks = MmkvManager.AUTO_SELECTOR_REMARKS, configType = EConfigType.AUTO.value) // Use EConfigType.AUTO
             autoSelectorGuid = MmkvManager.encodeServerConfig("", newProfile)
             serverList.add(0, autoSelectorGuid)
             MmkvManager.encodeServerList(serverList)
