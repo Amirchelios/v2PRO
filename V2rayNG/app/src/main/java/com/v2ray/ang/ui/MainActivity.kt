@@ -35,6 +35,7 @@ import com.v2ray.ang.dto.EConfigType
 import com.v2ray.ang.extension.toast
 import com.v2ray.ang.extension.toastError
 import com.v2ray.ang.handler.AngConfigManager
+import com.v2ray.ang.handler.AutoSelectorManager
 import com.v2ray.ang.handler.MigrateManager
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.helper.SimpleItemTouchHelperCallback
@@ -192,7 +193,7 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
                         mainViewModel.reloadServerList()
                         startV2Ray()
                     } else {
-                        toastError(R.string.toast_auto_selector_no_suitable_proxy)
+                        toastError(getString(R.string.toast_auto_selector_no_suitable_proxy))
                     }
                 }
             }

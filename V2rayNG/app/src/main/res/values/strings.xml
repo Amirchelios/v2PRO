@@ -396,5 +396,5 @@
         <item>Least Load</item>
     </string-array>
     <string name="pre_resolving_domain">Pre-resolving domain…</string>
-
+    <string name="toast_auto_selector_no_suitable_proxy">No suitable proxy found by Auto Selector.</string>
 </resources>

@@ -74,7 +74,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Ensure "Auto Selector" profile exists and is at the top
         var autoSelectorGuid = serverList.find { MmkvManager.decodeServerConfig(it)?.remarks == MmkvManager.AUTO_SELECTOR_REMARKS }
         if (autoSelectorGuid == null) {
-            val newProfile = ProfileItem(remarks = MmkvManager.AUTO_SELECTOR_REMARKS)
+            val newProfile = ProfileItem(remarks = MmkvManager.AUTO_SELECTOR_REMARKS, configType = -1) // -1 for auto-selector
             autoSelectorGuid = MmkvManager.encodeServerConfig("", newProfile)
             serverList.add(0, autoSelectorGuid)
             MmkvManager.encodeServerList(serverList)
