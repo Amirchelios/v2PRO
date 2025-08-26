@@ -38,6 +38,8 @@ object AutoSelectorManager {
         val shuffledGuids = guidList.shuffled(Random(System.currentTimeMillis()))
         Log.d(TAG, "Shuffled GUIDs for auto-selection: $shuffledGuids")
 
+        val results = mutableListOf<ProxyTestResult>()
+
         for (guid in shuffledGuids) {
             val profile = MmkvManager.decodeServerConfig(guid)
             if (profile == null) {
@@ -49,28 +51,27 @@ object AutoSelectorManager {
 
             // 1. Perform TCP ping
             val tcpPingResult = performTcpPing(profile)
-            if (tcpPingResult == -1L) {
-                Log.d(TAG, "TCP ping failed for ${profile.remarks}, skipping.")
-                continue
-            }
-            Log.d(TAG, "TCP ping successful for ${profile.remarks}: ${tcpPingResult}ms")
+            Log.d(TAG, "TCP ping for ${profile.remarks}: ${if (tcpPingResult != -1L) "${tcpPingResult}ms" else "Failed"}")
 
             // 2. Perform connection quality test
             val connectionQualityResult = performConnectionQualityTest(context, guid)
-            if (!connectionQualityResult) {
-                Log.d(TAG, "Connection quality test failed for ${profile.remarks}, skipping.")
-                continue
-            }
-            Log.d(TAG, "Connection quality test successful for ${profile.remarks}")
+            Log.d(TAG, "Connection quality test for ${profile.remarks}: ${if (connectionQualityResult) "Successful" else "Failed"}")
 
-            // If both tests pass, this is a suitable candidate.
-            // We'll take the first one that passes both for simplicity as per user's request
-            // "به اولین سرور متصل بشه" (connect to the first server).
-            Log.i(TAG, "Selected best proxy: ${profile.remarks} (${profile.server}:${profile.serverPort})")
+            results.add(ProxyTestResult(guid, profile, tcpPingResult, connectionQualityResult))
+        }
+
+        // Filter for proxies that passed both tests, then by lowest ping
+        val bestProxy = results
+            .filter { it.connectionQualitySuccessful }
+            .filter { it.tcpPingMillis != -1L }
+            .minByOrNull { it.tcpPingMillis }
+
+        if (bestProxy != null) {
+            Log.i(TAG, "Selected best proxy: ${bestProxy.profile.remarks} (${bestProxy.profile.server}:${bestProxy.profile.serverPort})")
 
             // Update the selected server's remarks to "Auto Selector"
-            profile.remarks = AUTO_SELECTOR_REMARKS
-            val newGuid = MmkvManager.encodeServerConfig(guid, profile) // Update existing or create new
+            bestProxy.profile.remarks = AUTO_SELECTOR_REMARKS
+            val newGuid = MmkvManager.encodeServerConfig(bestProxy.guid, bestProxy.profile) // Update existing or create new
             MmkvManager.setSelectServer(newGuid)
             return@withContext newGuid
         }
@@ -78,6 +79,13 @@ object AutoSelectorManager {
         Log.w(TAG, "No suitable proxy found after testing all candidates.")
         return@withContext null
     }
+
+    private data class ProxyTestResult(
+        val guid: String,
+        val profile: ProfileItem,
+        val tcpPingMillis: Long,
+        val connectionQualitySuccessful: Boolean
+    )
 
     /**
      * Performs a raw TCP ping to the server address and port of the given profile.

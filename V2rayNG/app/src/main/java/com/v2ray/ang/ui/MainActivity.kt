@@ -180,7 +180,22 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         val selectedServerGuid = MmkvManager.getSelectServer()
         val selectedProfile = selectedServerGuid?.let { MmkvManager.decodeServerConfig(it) }
         if (selectedProfile?.remarks == MmkvManager.AUTO_SELECTOR_REMARKS && mainViewModel.isRunning.value != true) {
-            startV2Ray()
+            lifecycleScope.launch(Dispatchers.IO) {
+                val allServerGuids = MmkvManager.decodeServerList()
+                val nonAutoSelectorGuids = allServerGuids.filter {
+                    MmkvManager.decodeServerConfig(it)?.remarks != MmkvManager.AUTO_SELECTOR_REMARKS
+                }
+                val bestProxyGuid = AutoSelectorManager.autoSelectBestProxy(this@MainActivity, nonAutoSelectorGuids)
+                withContext(Dispatchers.Main) {
+                    if (bestProxyGuid != null) {
+                        MmkvManager.setSelectServer(bestProxyGuid)
+                        mainViewModel.reloadServerList()
+                        startV2Ray()
+                    } else {
+                        toastError(R.string.toast_auto_selector_no_suitable_proxy)
+                    }
+                }
+            }
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

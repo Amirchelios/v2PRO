@@ -122,31 +122,26 @@ object MmkvManager {
         profileFullStorage.encode(key, JsonUtil.toJson(config))
         val serverList = decodeServerList()
         if (!serverList.contains(key)) {
-            if (config.remarks == AUTO_SELECTOR_REMARKS) {
-                // Remove any existing auto-selector from the list to ensure only one exists and is at the top
-                val existingAutoSelectorGuid = serverList.find {
-                    decodeServerConfig(it)?.remarks == AUTO_SELECTOR_REMARKS
-                }
-                if (existingAutoSelectorGuid != null) {
-                    serverList.remove(existingAutoSelectorGuid)
-                }
-                serverList.add(0, key) // Add to the very beginning
-            } else {
-                serverList.add(0, key) // Add to the beginning for other new servers
-            }
+            serverList.add(0, key) // Add to the beginning for new servers
             encodeServerList(serverList)
-            if (getSelectServer().isNullOrBlank() || config.remarks == AUTO_SELECTOR_REMARKS) {
-                mainStorage.encode(KEY_SELECTED_SERVER, key)
-            }
         }
-//        val profile = ProfileLiteItem(
-//            configType = config.configType,
-//            subscriptionId = config.subscriptionId,
-//            remarks = config.remarks,
-//            server = config.getProxyOutbound()?.getServerAddress(),
-//            serverPort = config.getProxyOutbound()?.getServerPort(),
-//        )
-//        profileStorage.encode(key, JsonUtil.toJson(profile))
+        // Always ensure "Auto Selector" is at the top and selected if it's the current config
+        if (config.remarks == AUTO_SELECTOR_REMARKS) {
+            val existingAutoSelectorGuid = serverList.find {
+                decodeServerConfig(it)?.remarks == AUTO_SELECTOR_REMARKS && it != key
+            }
+            if (existingAutoSelectorGuid != null) {
+                serverList.remove(existingAutoSelectorGuid)
+            }
+            if (serverList.firstOrNull() != key) {
+                serverList.remove(key)
+                serverList.add(0, key)
+                encodeServerList(serverList)
+            }
+            setSelectServer(key)
+        } else if (getSelectServer().isNullOrBlank()) {
+            setSelectServer(key)
+        }
         return key
     }
 

@@ -71,6 +71,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
      */
     fun reloadServerList() {
         serverList = MmkvManager.decodeServerList()
+        // Ensure "Auto Selector" profile exists and is at the top
+        var autoSelectorGuid = serverList.find { MmkvManager.decodeServerConfig(it)?.remarks == MmkvManager.AUTO_SELECTOR_REMARKS }
+        if (autoSelectorGuid == null) {
+            val newProfile = ProfileItem(remarks = MmkvManager.AUTO_SELECTOR_REMARKS)
+            autoSelectorGuid = MmkvManager.encodeServerConfig("", newProfile)
+            serverList.add(0, autoSelectorGuid)
+            MmkvManager.encodeServerList(serverList)
+        } else {
+            // Ensure it's at the top
+            if (serverList.firstOrNull() != autoSelectorGuid) {
+                serverList.remove(autoSelectorGuid)
+                serverList.add(0, autoSelectorGuid)
+                MmkvManager.encodeServerList(serverList)
+            }
+        }
+        // Set "Auto Selector" as the default selected server if nothing is selected
+        if (MmkvManager.getSelectServer().isNullOrBlank()) {
+            MmkvManager.setSelectServer(autoSelectorGuid)
+        }
         updateCache()
         updateListAction.value = -1
     }
