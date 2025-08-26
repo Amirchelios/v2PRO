@@ -1047,6 +1047,7 @@ object V2rayConfigManager {
             EConfigType.WIREGUARD -> WireguardFmt.toOutbound(profileItem)
             EConfigType.HYSTERIA2 -> null
             EConfigType.HTTP -> HttpFmt.toOutbound(profileItem)
+            EConfigType.AUTO -> null // Auto selector doesn't have a direct outbound conversion
         }
     }
 
@@ -1097,6 +1098,7 @@ object V2rayConfigManager {
                 )
 
             EConfigType.CUSTOM -> null
+            EConfigType.AUTO -> null // Auto selector doesn't have an initial outbound
         }
     }
 

@@ -308,6 +308,7 @@ object AngConfigManager {
                 EConfigType.TROJAN -> TrojanFmt.toUri(config)
                 EConfigType.WIREGUARD -> WireguardFmt.toUri(config)
                 EConfigType.HYSTERIA2 -> Hysteria2Fmt.toUri(config)
+                EConfigType.AUTO -> "" // Auto selector doesn't have a direct URI scheme
             }
         } catch (e: Exception) {
             Log.e(AppConfig.TAG, "Failed to share config for GUID: $guid", e)

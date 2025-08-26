@@ -63,6 +63,8 @@ data class ServerConfig(
                             )
                         )
                     )
+                EConfigType.AUTO ->
+                    return ServerConfig(configType = configType)
             }
         }
     }

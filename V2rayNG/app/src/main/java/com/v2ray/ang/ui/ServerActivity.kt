@@ -147,6 +147,7 @@ class ServerActivity : BaseActivity() {
             EConfigType.TROJAN -> setContentView(R.layout.activity_server_trojan)
             EConfigType.WIREGUARD -> setContentView(R.layout.activity_server_wireguard)
             EConfigType.HYSTERIA2 -> setContentView(R.layout.activity_server_hysteria2)
+            EConfigType.AUTO -> return // Auto selector doesn't have a dedicated server activity layout
         }
         sp_network?.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(
