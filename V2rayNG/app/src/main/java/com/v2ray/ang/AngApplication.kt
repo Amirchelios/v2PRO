@@ -46,9 +46,10 @@ class AngApplication : MultiDexApplication() {
 
         // Schedule the periodic proxy probing worker
         val repeatingRequest = PeriodicWorkRequestBuilder<ProxyProbeWorker>(
-            repeatInterval = 15, // Repeat every 15 minutes
-            flexTimeInterval = 5, // Flexible to run anytime in the last 5 minutes of the interval
-            TimeUnit.MINUTES
+            repeatInterval = 15L, // Repeat every 15 minutes
+            repeatIntervalTimeUnit = TimeUnit.MINUTES,
+            flexTimeInterval = 5L, // Flexible to run anytime in the last 5 minutes of the interval
+            flexTimeIntervalUnit = TimeUnit.MINUTES
         ).addTag(AppConfig.WORK_MANAGER_AUTO_PROXY_TAG)
             .build()
 

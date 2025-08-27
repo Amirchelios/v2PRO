@@ -47,24 +47,23 @@ object V2RayServiceManager {
      * @return True if the service was started successfully, false otherwise.
      */
     fun startVServiceFromToggle(context: Context): Boolean {
-        if (MmkvManager.getSelectServer().isNullOrEmpty()) {
+        val guid = MmkvManager.getSelectServer()
+        if (guid.isNullOrEmpty()) {
             context.toast(R.string.app_tile_first_use)
             return false
         }
-        startContextService(context)
+        startContextService(context, guid)
         return true
     }
 
     /**
      * Starts the V2Ray service.
      * @param context The context from which the service is started.
-     * @param guid The GUID of the server configuration to use (optional).
+     * @param guid The GUID of the server configuration to use.
      */
-    fun startVService(context: Context, guid: String? = null) {
-        if (guid != null) {
-            MmkvManager.setSelectServer(guid)
-        }
-        startContextService(context)
+    fun startVService(context: Context, guid: String) {
+        MmkvManager.setSelectServer(guid) // Ensure the selected server is set
+        startContextService(context, guid)
     }
 
     /**
