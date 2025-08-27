@@ -137,12 +137,12 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
             } else if ((MmkvManager.decodeSettingsString(AppConfig.PREF_MODE) ?: VPN) == VPN) {
                 val intent = VpnService.prepare(this)
                 if (intent == null) {
-                    startV2Ray()
+                    startV2RayWithAutoSelect()
                 } else {
                     requestVpnPermission.launch(intent)
                 }
             } else {
-                startV2Ray()
+                startV2RayWithAutoSelect()
             }
         }
         binding.layoutTest.setOnClickListener {
@@ -178,26 +178,9 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         migrateLegacy()
 
         // Auto-connect if "Auto Selector" is the selected server on app start
-        val selectedServerGuid = MmkvManager.getSelectServer()
-        val selectedProfile = selectedServerGuid?.let { MmkvManager.decodeServerConfig(it) }
-        if (selectedProfile?.remarks == MmkvManager.AUTO_SELECTOR_REMARKS && mainViewModel.isRunning.value != true) {
-            lifecycleScope.launch(Dispatchers.IO) {
-                val allServerGuids = MmkvManager.decodeServerList()
-                val nonAutoSelectorGuids = allServerGuids.filter {
-                    MmkvManager.decodeServerConfig(it)?.remarks != MmkvManager.AUTO_SELECTOR_REMARKS
-                }
-                val bestProxyGuid = AutoSelectorManager.autoSelectBestProxy(this@MainActivity, nonAutoSelectorGuids)
-                withContext(Dispatchers.Main) {
-                    if (bestProxyGuid != null) {
-                        MmkvManager.setSelectServer(bestProxyGuid)
-                        mainViewModel.reloadServerList()
-                        startV2Ray()
-                    } else {
-                        toastError(getString(R.string.toast_auto_selector_no_suitable_proxy))
-                    }
-                }
-            }
-        }
+        // Auto-connect if "Auto Selector" is the selected server on app start
+        // This logic is now handled by startV2RayWithAutoSelect() when the FAB is clicked.
+        // Removed to avoid duplicate auto-selection logic on app start.
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -293,13 +276,38 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         V2RayServiceManager.startVService(this)
     }
 
+    private fun startV2RayWithAutoSelect() {
+        val selectedServerGuid = MmkvManager.getSelectServer()
+        val selectedProfile = selectedServerGuid?.let { MmkvManager.decodeServerConfig(it) }
+        if (selectedProfile?.remarks == MmkvManager.AUTO_SELECTOR_REMARKS) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                val allServerGuids = MmkvManager.decodeServerList()
+                val nonAutoSelectorGuids = allServerGuids.filter {
+                    MmkvManager.decodeServerConfig(it)?.remarks != MmkvManager.AUTO_SELECTOR_REMARKS
+                }
+                val bestProxyGuid = AutoSelectorManager.autoSelectBestProxy(this@MainActivity, nonAutoSelectorGuids)
+                withContext(Dispatchers.Main) {
+                    if (bestProxyGuid != null) {
+                        MmkvManager.setSelectServer(bestProxyGuid)
+                        mainViewModel.reloadServerList()
+                        startV2Ray()
+                    } else {
+                        toastError(getString(R.string.toast_auto_selector_no_suitable_proxy))
+                    }
+                }
+            }
+        } else {
+            startV2Ray()
+        }
+    }
+
     private fun restartV2Ray() {
         if (mainViewModel.isRunning.value == true) {
             V2RayServiceManager.stopVService(this)
         }
         lifecycleScope.launch {
             delay(500)
-            startV2Ray()
+            startV2RayWithAutoSelect()
         }
     }
 
@@ -513,6 +521,11 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
                     binding.pbWaiting.hide()
                 }
                 Log.e(AppConfig.TAG, "Failed to import batch config", e)
+            } finally {
+                // Ensure UI updates even if there's an exception
+                withContext(Dispatchers.Main) {
+                    mainViewModel.reloadServerList()
+                }
             }
         }
     }

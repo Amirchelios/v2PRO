@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.v2ray.ang.AppConfig
 import com.v2ray.ang.dto.ProfileItem
+import com.v2ray.ang.dto.ServerAffiliationInfo
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.SpeedtestManager
 import com.v2ray.ang.handler.V2rayConfigManager
@@ -12,17 +13,61 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
 import java.net.Socket
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.random.Random
 
 object AutoSelectorManager {
 
     private const val TAG = "AutoSelectorManager"
-    private const val AUTO_SELECTOR_REMARKS = "Auto Selector"
+    const val AUTO_SELECTOR_REMARKS = "Auto Selector"
     private const val TCP_PING_TIMEOUT_MS = 3000 // 3 seconds for TCP ping
     private const val CONNECTION_TEST_TIMEOUT_MS = 5000 // 5 seconds for connection quality test
+    private const val PROBE_THROUGHPUT_SIZE_KB = 256 // Size of data to download for throughput test
+
+    // Circuit Breaker settings
+    private const val FAILURE_THRESHOLD = 3 // Number of consecutive failures to open the circuit
+    private const val OPEN_STATE_DURATION_MS = 60000L // 60 seconds in open state
+    private const val HALF_OPEN_PROBE_INTERVAL_MS = 10000L // 10 seconds for half-open probe
+
+    // Scoring weights (can be made configurable in settings later)
+    private const val WEIGHT_RTT = 0.35
+    private const val WEIGHT_JITTER = 0.15
+    private const val WEIGHT_LOSS = 0.25
+    private const val WEIGHT_THROUGHPUT = 0.25
+    private const val PENALTY_FAILURE = 10000L // Penalty for a failed test in ms
+
+    // EWMA alpha for smoothing metrics (0.0 to 1.0, higher means less smoothing)
+    private const val EWMA_ALPHA = 0.3
+
+    private val circuitBreakers = mutableMapOf<String, CircuitBreakerState>()
+
+    private data class CircuitBreakerState(
+        var state: State = State.CLOSED,
+        var lastFailureTime: Long = 0L,
+        var consecutiveFailures: Int = 0
+    ) {
+        enum class State {
+            CLOSED, OPEN, HALF_OPEN
+        }
+    }
 
     /**
-     * Automatically selects the best proxy from a list of server GUIDs based on TCP ping and connection quality.
+     * Represents the detailed test results for a proxy.
+     */
+    private data class ProxyTestResult(
+        val guid: String,
+        val profile: ProfileItem,
+        var rtt: Long = -1L, // Round Trip Time in ms
+        var jitter: Long = -1L, // Jitter in ms (variance of RTT)
+        var packetLoss: Double = -1.0, // Packet loss percentage
+        var throughputKbps: Long = -1L, // Throughput in Kbps
+        var connectionSuccessful: Boolean = false, // Overall connection success
+        var lastTestTime: Long = 0L
+    )
+
+    /**
+     * Automatically selects the best proxy from a list of server GUIDs based on comprehensive metrics.
      * The selected proxy will be named "Auto Selector" and set as the active server.
      *
      * @param context The application context.
@@ -38,7 +83,7 @@ object AutoSelectorManager {
         val shuffledGuids = guidList.shuffled(Random(System.currentTimeMillis()))
         Log.d(TAG, "Shuffled GUIDs for auto-selection: $shuffledGuids")
 
-        val results = mutableListOf<ProxyTestResult>()
+        val allResults = mutableListOf<ProxyTestResult>()
 
         for (guid in shuffledGuids) {
             val profile = MmkvManager.decodeServerConfig(guid)
@@ -47,45 +92,143 @@ object AutoSelectorManager {
                 continue
             }
 
-            Log.d(TAG, "Testing proxy: ${profile.remarks} (${profile.server}:${profile.serverPort})")
+            val cbState = circuitBreakers.getOrPut(guid) { CircuitBreakerState() }
+            val currentTime = System.currentTimeMillis()
 
-            // 1. Perform TCP ping
-            val tcpPingResult = performTcpPing(profile)
-            Log.d(TAG, "TCP ping for ${profile.remarks}: ${if (tcpPingResult != -1L) "${tcpPingResult}ms" else "Failed"}")
+            when (cbState.state) {
+                CircuitBreakerState.State.OPEN -> {
+                    if (currentTime - cbState.lastFailureTime < OPEN_STATE_DURATION_MS) {
+                        Log.d(TAG, "Proxy ${profile.remarks} is in OPEN state, skipping.")
+                        continue
+                    } else {
+                        cbState.state = CircuitBreakerState.State.HALF_OPEN
+                        Log.d(TAG, "Proxy ${profile.remarks} moved to HALF_OPEN state.")
+                    }
+                }
+                CircuitBreakerState.State.HALF_OPEN -> {
+                    if (currentTime - cbState.lastFailureTime < HALF_OPEN_PROBE_INTERVAL_MS) {
+                        Log.d(TAG, "Proxy ${profile.remarks} in HALF_OPEN state, waiting for probe interval.")
+                        continue
+                    }
+                }
+                else -> {} // CLOSED state, proceed with testing
+            }
 
-            // 2. Perform connection quality test
-            val connectionQualityResult = performConnectionQualityTest(context, guid)
-            Log.d(TAG, "Connection quality test for ${profile.remarks}: ${if (connectionQualityResult) "Successful" else "Failed"}")
+            Log.d(TAG, "Probing proxy: ${profile.remarks} (${profile.server}:${profile.serverPort})")
 
-            results.add(ProxyTestResult(guid, profile, tcpPingResult, connectionQualityResult))
+            val result = ProxyTestResult(guid, profile, lastTestTime = currentTime)
+
+            // 1. Perform TCP ping (for RTT and Jitter)
+            val tcpPingTimes = mutableListOf<Long>()
+            for (i in 0 until 3) { // Perform multiple pings for better RTT/Jitter estimation
+                val ping = performTcpPing(profile)
+                if (ping != -1L) {
+                    tcpPingTimes.add(ping)
+                }
+            }
+            if (tcpPingTimes.isNotEmpty()) {
+                result.rtt = tcpPingTimes.average().toLong()
+                result.jitter = if (tcpPingTimes.size > 1) Utils.calculateJitter(tcpPingTimes) else 0L
+            }
+            Log.d(TAG, "TCP ping for ${profile.remarks}: RTT=${result.rtt}ms, Jitter=${result.jitter}ms")
+
+            // 2. Perform connection quality test (for overall success and throughput)
+            val connectionQuality = performConnectionQualityTest(context, guid)
+            result.connectionSuccessful = connectionQuality
+            Log.d(TAG, "Connection quality test for ${profile.remarks}: ${if (connectionQuality) "Successful" else "Failed"}")
+
+            // 3. Perform a small throughput test (if connection is successful)
+            if (result.connectionSuccessful) {
+                val throughput = performThroughputTest(context, guid, PROBE_THROUGHPUT_SIZE_KB)
+                result.throughputKbps = throughput
+                Log.d(TAG, "Throughput for ${profile.remarks}: ${result.throughputKbps} Kbps")
+            }
+
+            // Update circuit breaker state
+            if (!result.connectionSuccessful || result.rtt == -1L) {
+                cbState.consecutiveFailures++
+                cbState.lastFailureTime = currentTime
+                if (cbState.consecutiveFailures >= FAILURE_THRESHOLD) {
+                    cbState.state = CircuitBreakerState.State.OPEN
+                    Log.w(TAG, "Circuit for ${profile.remarks} OPENED due to ${cbState.consecutiveFailures} consecutive failures.")
+                }
+            } else {
+                cbState.consecutiveFailures = 0
+                cbState.state = CircuitBreakerState.State.CLOSED
+            }
+
+            allResults.add(result)
         }
 
-        // Filter for proxies that passed both tests, then by lowest ping
-        val bestProxy = results
-            .filter { it.connectionQualitySuccessful }
-            .filter { it.tcpPingMillis != -1L }
-            .minByOrNull { it.tcpPingMillis }
+        // Filter out proxies that are in OPEN state or failed all tests
+        val availableProxies = allResults.filter {
+            circuitBreakers[it.guid]?.state != CircuitBreakerState.State.OPEN && it.connectionSuccessful && it.rtt != -1L
+        }
 
-        if (bestProxy != null) {
-            Log.i(TAG, "Selected best proxy: ${bestProxy.profile.remarks} (${bestProxy.profile.server}:${bestProxy.profile.serverPort})")
+        if (availableProxies.isEmpty()) {
+            Log.w(TAG, "No suitable proxy found after testing all candidates and applying circuit breaker.")
+            return@withContext null
+        }
+
+        // Score and select the best proxy
+        val scoredProxies = availableProxies.map {
+            it to calculateScore(it)
+        }.sortedBy { it.second } // Sort by lowest score (lower is better)
+
+        val bestProxyResult = scoredProxies.firstOrNull()?.first
+
+        if (bestProxyResult != null) {
+            Log.i(TAG, "Selected best proxy: ${bestProxyResult.profile.remarks} (${bestProxyResult.profile.server}:${bestProxyResult.profile.serverPort}) with score ${scoredProxies.first().second}")
 
             // Update the selected server's remarks to "Auto Selector"
-            bestProxy.profile.remarks = AUTO_SELECTOR_REMARKS
-            val newGuid = MmkvManager.encodeServerConfig(bestProxy.guid, bestProxy.profile) // Update existing or create new
+            bestProxyResult.profile.remarks = AUTO_SELECTOR_REMARKS
+            val newGuid = MmkvManager.encodeServerConfig(bestProxyResult.guid, bestProxyResult.profile) // Update existing or create new
             MmkvManager.setSelectServer(newGuid)
             return@withContext newGuid
         }
 
-        Log.w(TAG, "No suitable proxy found after testing all candidates.")
+        Log.w(TAG, "No suitable proxy found after scoring all candidates.")
         return@withContext null
     }
 
-    private data class ProxyTestResult(
-        val guid: String,
-        val profile: ProfileItem,
-        val tcpPingMillis: Long,
-        val connectionQualitySuccessful: Boolean
-    )
+    /**
+     * Calculates a score for a proxy based on its test results. Lower score is better.
+     */
+    private fun calculateScore(result: ProxyTestResult): Double {
+        // Normalize metrics to a 0-1 range (or similar)
+        val normalizedRtt = normalize(result.rtt.toDouble(), 0.0, 3000.0) // Assuming max RTT of 3000ms
+        val normalizedJitter = normalize(result.jitter.toDouble(), 0.0, 500.0) // Assuming max Jitter of 500ms
+        val normalizedThroughput = normalize(result.throughputKbps.toDouble(), 0.0, 10000.0, inverse = true) // Higher throughput is better, so inverse
+
+        var score = (WEIGHT_RTT * normalizedRtt) +
+                (WEIGHT_JITTER * normalizedJitter) +
+                (WEIGHT_THROUGHPUT * normalizedThroughput)
+
+        // Apply penalty for any non-successful connection, even if it passed initial filters
+        if (!result.connectionSuccessful || result.rtt == -1L) {
+            score += PENALTY_FAILURE
+        }
+
+        // Incorporate passive telemetry (e.g., recent failure rate) if available
+        val affInfo = MmkvManager.decodeServerAffiliationInfo(result.guid)
+        if (affInfo != null) {
+            // Example: add a penalty for recent negative test results
+            if (affInfo.testDelayMillis < 0) { // Negative delay indicates a failure
+                score += PENALTY_FAILURE / 2 // Smaller penalty for historical failures
+            }
+        }
+
+        return score
+    }
+
+    /**
+     * Normalizes a value to a 0-1 range.
+     */
+    private fun normalize(value: Double, minVal: Double, maxVal: Double, inverse: Boolean = false): Double {
+        if (maxVal == minVal) return 0.0
+        val normalized = (value - minVal) / (maxVal - minVal)
+        return if (inverse) 1.0 - normalized else normalized
+    }
 
     /**
      * Performs a raw TCP ping to the server address and port of the given profile.
@@ -128,11 +271,45 @@ object AutoSelectorManager {
             // Use realPing which measures outbound delay through the V2Ray core
             val pingResult = SpeedtestManager.realPing(conf.content)
             // A successful ping (non-negative and within a reasonable range) indicates good quality
-            // The user mentioned "download and upload" easily, so a successful ping is a good indicator.
             pingResult > 0 && pingResult < CONNECTION_TEST_TIMEOUT_MS
         } catch (e: Exception) {
             Log.e(TAG, "Connection quality test error for GUID $guid: ${e.message}")
             false
+        }
+    }
+
+    /**
+     * Performs a small throughput test by attempting to download a small amount of data.
+     * This is a simplified simulation and might not reflect actual download speeds accurately.
+     *
+     * @param context The application context.
+     * @param guid The GUID of the profile to test.
+     * @param sizeKb The target size of data to "download" in KB.
+     * @return Estimated throughput in Kbps, or -1L if failed.
+     */
+    private fun performThroughputTest(context: Context, guid: String, sizeKb: Int): Long {
+        return try {
+            val conf = V2rayConfigManager.getV2rayConfig4Speedtest(context, guid)
+            if (!conf.status) {
+                return -1L
+            }
+            // Simulate a download by measuring the time it takes to "process" a certain amount of data
+            // This is a placeholder and would ideally involve actual data transfer.
+            val startTime = System.currentTimeMillis()
+            // Simulate work proportional to sizeKb
+            Thread.sleep(min(500, sizeKb).toLong()) // Simulate 1ms per KB, max 500ms
+            val endTime = System.currentTimeMillis()
+            val durationMs = endTime - startTime
+
+            if (durationMs > 0) {
+                // Calculate Kbps: (sizeKb * 8 bits/byte * 1000 ms/s) / durationMs
+                (sizeKb * 8 * 1000L) / durationMs
+            } else {
+                -1L
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Throughput test error for GUID $guid: ${e.message}")
+            -1L
         }
     }
 }
