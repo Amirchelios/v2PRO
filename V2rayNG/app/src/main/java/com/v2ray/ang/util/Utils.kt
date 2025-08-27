@@ -566,8 +566,6 @@ object Utils {
             return false
         }
     }
-}
-
     /**
      * Calculates the jitter (variance) of a list of ping times.
      *
@@ -583,4 +581,4 @@ object Utils {
         val variance = pingTimes.map { (it - mean) * (it - mean) }.average()
         return kotlin.math.sqrt(variance).toLong()
     }
-
+}
