@@ -568,3 +568,19 @@ object Utils {
     }
 }
 
+    /**
+     * Calculates the jitter (variance) of a list of ping times.
+     *
+     * @param pingTimes A list of ping times in milliseconds.
+     * @return The jitter in milliseconds, or 0 if the list is empty or contains only one element.
+     */
+    fun calculateJitter(pingTimes: List<Long>): Long {
+        if (pingTimes.size <= 1) {
+            return 0L
+        }
+
+        val mean = pingTimes.average()
+        val variance = pingTimes.map { (it - mean) * (it - mean) }.average()
+        return kotlin.math.sqrt(variance).toLong()
+    }
+
