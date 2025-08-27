@@ -70,6 +70,7 @@ object AppConfig {
     /** Cache keys. */
     const val CACHE_SUBSCRIPTION_ID = "cache_subscription_id"
     const val CACHE_KEYWORD_FILTER = "cache_keyword_filter"
+    const val WORK_MANAGER_AUTO_PROXY_TAG = "WORK_MANAGER_AUTO_PROXY_TAG"
 
     /** Protocol identifiers. */
     const val PROTOCOL_FREEDOM = "freedom"

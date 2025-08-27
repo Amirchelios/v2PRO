@@ -3,8 +3,12 @@ package com.v2ray.ang
 import android.content.Context
 import androidx.multidex.MultiDexApplication
 import androidx.work.Configuration
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.tencent.mmkv.MMKV
+import com.v2ray.ang.worker.ProxyProbeWorker
+import java.util.concurrent.TimeUnit
 import com.v2ray.ang.AppConfig.ANG_PACKAGE
 import com.v2ray.ang.handler.SettingsManager
 
@@ -39,6 +43,20 @@ class AngApplication : MultiDexApplication() {
         WorkManager.initialize(this, workManagerConfiguration)
 
         SettingsManager.initRoutingRulesets(this)
+
+        // Schedule the periodic proxy probing worker
+        val repeatingRequest = PeriodicWorkRequestBuilder<ProxyProbeWorker>(
+            repeatInterval = 15, // Repeat every 15 minutes
+            flexTimeInterval = 5, // Flexible to run anytime in the last 5 minutes of the interval
+            TimeUnit.MINUTES
+        ).addTag(AppConfig.WORK_MANAGER_AUTO_PROXY_TAG)
+            .build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            AppConfig.WORK_MANAGER_AUTO_PROXY_TAG,
+            ExistingPeriodicWorkPolicy.UPDATE, // Update existing work if it exists
+            repeatingRequest
+        )
 
         es.dmoral.toasty.Toasty.Config.getInstance()
             .setGravity(android.view.Gravity.BOTTOM, 0, 200)

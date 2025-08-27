@@ -137,12 +137,12 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
             } else if ((MmkvManager.decodeSettingsString(AppConfig.PREF_MODE) ?: VPN) == VPN) {
                 val intent = VpnService.prepare(this)
                 if (intent == null) {
-                    startV2RayWithAutoSelect()
+                    startV2RayWithAutoSelect(true)
                 } else {
                     requestVpnPermission.launch(intent)
                 }
             } else {
-                startV2RayWithAutoSelect()
+                startV2RayWithAutoSelect(true)
             }
         }
         binding.layoutTest.setOnClickListener {
@@ -176,11 +176,6 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         initGroupTab()
         setupViewModel()
         migrateLegacy()
-
-        // Auto-connect if "Auto Selector" is the selected server on app start
-        // Auto-connect if "Auto Selector" is the selected server on app start
-        // This logic is now handled by startV2RayWithAutoSelect() when the FAB is clicked.
-        // Removed to avoid duplicate auto-selection logic on app start.
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -268,36 +263,58 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         binding.tabGroup.isVisible = true
     }
 
-    private fun startV2Ray() {
-        if (MmkvManager.getSelectServer().isNullOrEmpty()) {
+    private fun startV2Ray(guid: String? = null) {
+        val targetGuid = guid ?: MmkvManager.getSelectServer()
+        if (targetGuid.isNullOrEmpty()) {
             toast(R.string.title_file_chooser)
             return
         }
-        V2RayServiceManager.startVService(this)
+        V2RayServiceManager.startVService(this, targetGuid)
     }
 
-    private fun startV2RayWithAutoSelect() {
+    private fun startV2RayWithAutoSelect(initialStart: Boolean = false) {
         val selectedServerGuid = MmkvManager.getSelectServer()
         val selectedProfile = selectedServerGuid?.let { MmkvManager.decodeServerConfig(it) }
+
         if (selectedProfile?.remarks == MmkvManager.AUTO_SELECTOR_REMARKS) {
             lifecycleScope.launch(Dispatchers.IO) {
                 val allServerGuids = MmkvManager.decodeServerList()
                 val nonAutoSelectorGuids = allServerGuids.filter {
                     MmkvManager.decodeServerConfig(it)?.remarks != MmkvManager.AUTO_SELECTOR_REMARKS
                 }
+
+                if (initialStart) {
+                    // For initial start, try to get the last good proxy or a default one quickly
+                    val lastGoodProxyGuid = AutoSelectorManager.getBestAvailableProxy(nonAutoSelectorGuids)
+                    withContext(Dispatchers.Main) {
+                        if (lastGoodProxyGuid != null) {
+                            V2RayServiceManager.startVService(this@MainActivity, lastGoodProxyGuid)
+                        } else {
+                            // If no last good proxy, try to run auto-selection immediately
+                            toast(getString(R.string.toast_auto_selector_finding_best))
+                            val bestProxyGuid = AutoSelectorManager.autoSelectBestProxy(this@MainActivity, nonAutoSelectorGuids)
+                            if (bestProxyGuid != null) {
+                                V2RayServiceManager.startVService(this@MainActivity, bestProxyGuid)
+                            } else {
+                                toastError(getString(R.string.toast_auto_selector_no_suitable_proxy))
+                            }
+                        }
+                    }
+                }
+
+                // Always run full auto-selection in the background for continuous optimization
                 val bestProxyGuid = AutoSelectorManager.autoSelectBestProxy(this@MainActivity, nonAutoSelectorGuids)
                 withContext(Dispatchers.Main) {
-                    if (bestProxyGuid != null) {
-                        MmkvManager.setSelectServer(bestProxyGuid)
+                    if (bestProxyGuid != null && MmkvManager.getSelectServer() != bestProxyGuid) {
+                        // If a better proxy is found and it's different from the current one, switch
+                        V2RayServiceManager.switchProxy(this@MainActivity, bestProxyGuid)
                         mainViewModel.reloadServerList()
-                        startV2Ray()
-                    } else {
-                        toastError(getString(R.string.toast_auto_selector_no_suitable_proxy))
+                        toast(getString(R.string.toast_auto_selector_switched_to, MmkvManager.decodeServerConfig(bestProxyGuid)?.remarks))
                     }
                 }
             }
         } else {
-            startV2Ray()
+            startV2Ray(selectedServerGuid)
         }
     }
 
@@ -307,7 +324,7 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         }
         lifecycleScope.launch {
             delay(500)
-            startV2RayWithAutoSelect()
+            startV2RayWithAutoSelect(true) // Treat restart as an initial start for auto-selection
         }
     }
 

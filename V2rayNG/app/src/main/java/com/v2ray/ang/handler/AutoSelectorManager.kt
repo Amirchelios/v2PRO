@@ -63,9 +63,30 @@ object AutoSelectorManager {
         var packetLoss: Double = -1.0, // Packet loss percentage
         var throughputKbps: Long = -1L, // Throughput in Kbps
         var connectionSuccessful: Boolean = false, // Overall connection success
-        var lastTestTime: Long = 0L
+        var lastTestTime: Long = 0L,
+        var historicalMetrics: HistoricalMetrics? = null
     )
 
+    /**
+     * Represents historical performance metrics for a proxy.
+     */
+    data class HistoricalMetrics(
+        var averageRtt: Long = -1L,
+        var averageJitter: Long = -1L,
+        var averageThroughputKbps: Long = -1L,
+        var failureCount: Int = 0,
+        var successCount: Int = 0,
+        var lastUpdateTime: Long = 0L
+    )
+
+    /**
+     * Automatically selects the best proxy from a list of server GUIDs based on comprehensive metrics.
+     * The selected proxy will be named "Auto Selector" and set as the active server.
+     *
+     * @param context The application context.
+     * @param guidList The list of server GUIDs to choose from.
+     * @return The GUID of the selected best proxy, or null if no suitable proxy is found.
+     */
     /**
      * Automatically selects the best proxy from a list of server GUIDs based on comprehensive metrics.
      * The selected proxy will be named "Auto Selector" and set as the active server.
@@ -116,7 +137,9 @@ object AutoSelectorManager {
 
             Log.d(TAG, "Probing proxy: ${profile.remarks} (${profile.server}:${profile.serverPort})")
 
-            val result = ProxyTestResult(guid, profile, lastTestTime = currentTime)
+            // Load historical metrics
+            val historicalMetrics = MmkvManager.decodeHistoricalMetrics(guid) ?: HistoricalMetrics()
+            val result = ProxyTestResult(guid, profile, lastTestTime = currentTime, historicalMetrics = historicalMetrics)
 
             // 1. Perform TCP ping (for RTT and Jitter)
             val tcpPingTimes = mutableListOf<Long>()
@@ -144,7 +167,10 @@ object AutoSelectorManager {
                 Log.d(TAG, "Throughput for ${profile.remarks}: ${result.throughputKbps} Kbps")
             }
 
-            // Update circuit breaker state
+            // Update historical metrics and circuit breaker state
+            updateHistoricalMetrics(result)
+            MmkvManager.encodeHistoricalMetrics(guid, result.historicalMetrics!!) // Save updated historical metrics
+
             if (!result.connectionSuccessful || result.rtt == -1L) {
                 cbState.consecutiveFailures++
                 cbState.lastFailureTime = currentTime
@@ -192,13 +218,101 @@ object AutoSelectorManager {
     }
 
     /**
-     * Calculates a score for a proxy based on its test results. Lower score is better.
+     * Returns the best available proxy based on historical metrics without performing new tests.
+     * This is used for quick initial selection.
+     *
+     * @param guidList The list of server GUIDs to choose from.
+     * @return The GUID of the best available proxy, or null if none found.
+     */
+    fun getBestAvailableProxy(guidList: List<String>): String? {
+        if (guidList.isEmpty()) {
+            Log.d(TAG, "GUID list is empty, no proxies to select from historical data.")
+            return null
+        }
+
+        val availableProxies = guidList.mapNotNull { guid ->
+            val profile = MmkvManager.decodeServerConfig(guid)
+            val historicalMetrics = MmkvManager.decodeHistoricalMetrics(guid)
+
+            if (profile != null && historicalMetrics != null && historicalMetrics.successCount > 0) {
+                // Create a dummy ProxyTestResult to use the existing scoring mechanism
+                ProxyTestResult(
+                    guid = guid,
+                    profile = profile,
+                    rtt = historicalMetrics.averageRtt,
+                    jitter = historicalMetrics.averageJitter,
+                    throughputKbps = historicalMetrics.averageThroughputKbps,
+                    connectionSuccessful = true, // Assume successful if historical data exists
+                    lastTestTime = historicalMetrics.lastUpdateTime,
+                    historicalMetrics = historicalMetrics
+                )
+            } else {
+                null
+            }
+        }.filter {
+            // Filter out proxies that are in OPEN state based on circuit breaker
+            circuitBreakers[it.guid]?.state != CircuitBreakerState.State.OPEN
+        }
+
+        if (availableProxies.isEmpty()) {
+            Log.w(TAG, "No suitable proxy found from historical data.")
+            return null
+        }
+
+        val scoredProxies = availableProxies.map {
+            it to calculateScore(it)
+        }.sortedBy { it.second }
+
+        val bestProxyGuid = scoredProxies.firstOrNull()?.first?.guid
+        Log.i(TAG, "Selected best proxy from historical data: ${MmkvManager.decodeServerConfig(bestProxyGuid!!)?.remarks} with score ${scoredProxies.first().second}")
+        return bestProxyGuid
+    }
+
+    /**
+     * Updates the historical metrics for a proxy using EWMA.
+     */
+    private fun updateHistoricalMetrics(result: ProxyTestResult) {
+        val metrics = result.historicalMetrics ?: return
+        val alpha = EWMA_ALPHA
+
+        if (result.connectionSuccessful) {
+            metrics.successCount++
+            if (metrics.averageRtt == -1L) {
+                metrics.averageRtt = result.rtt
+            } else {
+                metrics.averageRtt = (alpha * result.rtt + (1 - alpha) * metrics.averageRtt).toLong()
+            }
+            if (metrics.averageJitter == -1L) {
+                metrics.averageJitter = result.jitter
+            } else {
+                metrics.averageJitter = (alpha * result.jitter + (1 - alpha) * metrics.averageJitter).toLong()
+            }
+            if (metrics.averageThroughputKbps == -1L) {
+                metrics.averageThroughputKbps = result.throughputKbps
+            } else {
+                metrics.averageThroughputKbps = (alpha * result.throughputKbps + (1 - alpha) * metrics.averageThroughputKbps).toLong()
+            }
+        } else {
+            metrics.failureCount++
+        }
+        metrics.lastUpdateTime = System.currentTimeMillis()
+    }
+
+    /**
+     * Calculates a score for a proxy based on its test results and historical data. Lower score is better.
      */
     private fun calculateScore(result: ProxyTestResult): Double {
+        val metrics = result.historicalMetrics ?: HistoricalMetrics()
+
+        // Use current test results if available and valid, otherwise fall back to historical averages
+        val currentRtt = if (result.rtt != -1L) result.rtt.toDouble() else metrics.averageRtt.toDouble()
+        val currentJitter = if (result.jitter != -1L) result.jitter.toDouble() else metrics.averageJitter.toDouble()
+        val currentThroughput = if (result.throughputKbps != -1L) result.throughputKbps.toDouble() else metrics.averageThroughputKbps.toDouble()
+
         // Normalize metrics to a 0-1 range (or similar)
-        val normalizedRtt = normalize(result.rtt.toDouble(), 0.0, 3000.0) // Assuming max RTT of 3000ms
-        val normalizedJitter = normalize(result.jitter.toDouble(), 0.0, 500.0) // Assuming max Jitter of 500ms
-        val normalizedThroughput = normalize(result.throughputKbps.toDouble(), 0.0, 10000.0, inverse = true) // Higher throughput is better, so inverse
+        val normalizedRtt = normalize(currentRtt, 0.0, 3000.0) // Assuming max RTT of 3000ms
+        val normalizedJitter = normalize(currentJitter, 0.0, 500.0) // Assuming max Jitter of 500ms
+        val normalizedThroughput = normalize(currentThroughput, 0.0, 10000.0, inverse = true) // Higher throughput is better, so inverse
 
         var score = (WEIGHT_RTT * normalizedRtt) +
                 (WEIGHT_JITTER * normalizedJitter) +
@@ -209,14 +323,15 @@ object AutoSelectorManager {
             score += PENALTY_FAILURE
         }
 
-        // Incorporate passive telemetry (e.g., recent failure rate) if available
-        val affInfo = MmkvManager.decodeServerAffiliationInfo(result.guid)
-        if (affInfo != null) {
-            // Example: add a penalty for recent negative test results
-            if (affInfo.testDelayMillis < 0) { // Negative delay indicates a failure
-                score += PENALTY_FAILURE / 2 // Smaller penalty for historical failures
-            }
+        // Incorporate historical failure rate
+        if (metrics.successCount + metrics.failureCount > 0) {
+            val failureRate = metrics.failureCount.toDouble() / (metrics.successCount + metrics.failureCount)
+            score += failureRate * PENALTY_FAILURE // Scale penalty by failure rate
         }
+
+        // Add a small penalty for older data to favor more recent tests
+        val agePenalty = (System.currentTimeMillis() - metrics.lastUpdateTime).toDouble() / (OPEN_STATE_DURATION_MS * 2) // Max penalty after 2 minutes of old data
+        score += min(agePenalty, PENALTY_FAILURE.toDouble()) // Cap the age penalty
 
         return score
     }

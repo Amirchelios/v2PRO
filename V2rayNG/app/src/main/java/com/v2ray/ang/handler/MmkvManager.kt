@@ -19,6 +19,7 @@ object MmkvManager {
     private const val ID_MAIN = "MAIN"
     private const val ID_PROFILE_FULL_CONFIG = "PROFILE_FULL_CONFIG"
     private const val ID_SERVER_RAW = "SERVER_RAW"
+    private const val ID_HISTORICAL_METRICS = "HISTORICAL_METRICS"
     private const val ID_SERVER_AFF = "SERVER_AFF"
     private const val ID_SUB = "SUB"
     private const val ID_ASSET = "ASSET"
@@ -33,6 +34,7 @@ object MmkvManager {
     private val profileFullStorage by lazy { MMKV.mmkvWithID(ID_PROFILE_FULL_CONFIG, MMKV.MULTI_PROCESS_MODE) }
     private val serverRawStorage by lazy { MMKV.mmkvWithID(ID_SERVER_RAW, MMKV.MULTI_PROCESS_MODE) }
     private val serverAffStorage by lazy { MMKV.mmkvWithID(ID_SERVER_AFF, MMKV.MULTI_PROCESS_MODE) }
+    private val historicalMetricsStorage by lazy { MMKV.mmkvWithID(ID_HISTORICAL_METRICS, MMKV.MULTI_PROCESS_MODE) }
     private val subStorage by lazy { MMKV.mmkvWithID(ID_SUB, MMKV.MULTI_PROCESS_MODE) }
     private val assetStorage by lazy { MMKV.mmkvWithID(ID_ASSET, MMKV.MULTI_PROCESS_MODE) }
     private val settingsStorage by lazy { MMKV.mmkvWithID(ID_SETTING, MMKV.MULTI_PROCESS_MODE) }
@@ -291,6 +293,29 @@ object MmkvManager {
         return serverRawStorage.decodeString(guid)
     }
 
+    //endregion
+
+    //region Historical Metrics
+    /**
+     * Encodes the historical metrics for a server.
+     *
+     * @param guid The server GUID.
+     * @param metrics The historical metrics.
+     */
+    fun encodeHistoricalMetrics(guid: String, metrics: AutoSelectorManager.HistoricalMetrics) {
+        historicalMetricsStorage.encode(guid, JsonUtil.toJson(metrics))
+    }
+
+    /**
+     * Decodes the historical metrics for a server.
+     *
+     * @param guid The server GUID.
+     * @return The historical metrics, or null if not found.
+     */
+    fun decodeHistoricalMetrics(guid: String): AutoSelectorManager.HistoricalMetrics? {
+        val json = historicalMetricsStorage.decodeString(guid) ?: return null
+        return JsonUtil.fromJson(json, AutoSelectorManager.HistoricalMetrics::class.java)
+    }
     //endregion
 
     //region Subscriptions

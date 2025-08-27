@@ -92,19 +92,17 @@ object V2RayServiceManager {
      * Starts the context service for V2Ray.
      * Chooses between VPN service or Proxy-only service based on user settings.
      * @param context The context from which the service is started.
+     * @param guid The GUID of the server to start with.
      */
-    private fun startContextService(context: Context) {
+    private fun startContextService(context: Context, guid: String) {
         if (coreController.isRunning) {
             return
         }
-        val guid = MmkvManager.getSelectServer() ?: return
         val config = MmkvManager.decodeServerConfig(guid) ?: return
         if (config.configType != EConfigType.CUSTOM
             && !Utils.isValidUrl(config.server)
             && !Utils.isPureIpAddress(config.server.orEmpty())
         ) return
-//        val result = V2rayConfigUtil.getV2rayConfig(context, guid)
-//        if (!result.status) return
 
         if (MmkvManager.decodeSettingsBool(AppConfig.PREF_PROXY_SHARING) == true) {
             context.toast(R.string.toast_warning_pref_proxysharing_short)
@@ -116,10 +114,77 @@ object V2RayServiceManager {
         } else {
             Intent(context.applicationContext, V2RayProxyOnlyService::class.java)
         }
+        intent.putExtra("guid", guid) // Pass the GUID to the service
         if (Build.VERSION.SDK_INT > Build.VERSION_CODES.N_MR1) {
             context.startForegroundService(intent)
         } else {
             context.startService(intent)
+        }
+    }
+
+    /**
+     * Switches the active proxy without stopping the entire VPN service.
+     * This involves stopping the current core and starting a new one with the new configuration.
+     *
+     * @param context The application context.
+     * @param newGuid The GUID of the new server configuration to switch to.
+     */
+    fun switchProxy(context: Context, newGuid: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            Log.i(AppConfig.TAG, "Attempting to switch proxy to $newGuid")
+            val service = getService() ?: run {
+                Log.e(AppConfig.TAG, "Service not available for proxy switch.")
+                return@launch
+            }
+
+            // Stop the current core gracefully
+            if (coreController.isRunning) {
+                try {
+                    coreController.stopLoop()
+                    Log.d(AppConfig.TAG, "Current V2Ray core stopped for switch.")
+                } catch (e: Exception) {
+                    Log.e(AppConfig.TAG, "Failed to stop V2Ray core during switch: ${e.message}", e)
+                }
+            }
+
+            // Update the selected server in MMKV
+            MmkvManager.setSelectServer(newGuid)
+            Log.d(AppConfig.TAG, "MMKV selected server updated to $newGuid.")
+
+            // Start a new core with the new configuration
+            val config = MmkvManager.decodeServerConfig(newGuid)
+            if (config == null) {
+                Log.e(AppConfig.TAG, "New configuration for GUID $newGuid not found, cannot switch proxy.")
+                MessageUtil.sendMsg2UI(service, AppConfig.MSG_STATE_START_FAILURE, "New config not found")
+                return@launch
+            }
+
+            val result = V2rayConfigManager.getV2rayConfig(service, newGuid)
+            if (!result.status) {
+                Log.e(AppConfig.TAG, "Failed to get V2Ray config for new GUID $newGuid, cannot switch proxy.")
+                MessageUtil.sendMsg2UI(service, AppConfig.MSG_STATE_START_FAILURE, "Failed to get new config")
+                return@launch
+            }
+
+            try {
+                currentConfig = config
+                coreController.startLoop(result.content)
+                if (coreController.isRunning) {
+                    Log.i(AppConfig.TAG, "Successfully switched proxy to ${config.remarks}.")
+                    MessageUtil.sendMsg2UI(service, AppConfig.MSG_STATE_START_SUCCESS, "")
+                    NotificationManager.showNotification(currentConfig)
+                    NotificationManager.startSpeedNotification(currentConfig)
+                    PluginServiceManager.runPlugin(service, config, result.socksPort)
+                } else {
+                    Log.e(AppConfig.TAG, "Failed to start new V2Ray core after switch.")
+                    MessageUtil.sendMsg2UI(service, AppConfig.MSG_STATE_START_FAILURE, "Failed to start new core")
+                    NotificationManager.cancelNotification()
+                }
+            } catch (e: Exception) {
+                Log.e(AppConfig.TAG, "Error starting new V2Ray core after switch: ${e.message}", e)
+                MessageUtil.sendMsg2UI(service, AppConfig.MSG_STATE_START_FAILURE, e.message.orEmpty())
+                NotificationManager.cancelNotification()
+            }
         }
     }
 
