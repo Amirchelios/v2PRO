@@ -416,7 +416,8 @@ object V2RayServiceManager {
                     Log.i(AppConfig.TAG, "Restart Service")
                     serviceControl.stopService()
                     Thread.sleep(500L)
-                    startVService(serviceControl.getService())
+                    val guid = MmkvManager.getSelectServer() ?: return
+                    startVService(serviceControl.getService(), guid)
                 }
 
                 AppConfig.MSG_MEASURE_DELAY -> {

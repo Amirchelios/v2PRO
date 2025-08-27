@@ -18,6 +18,7 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
         if (context == null || intent?.action != Intent.ACTION_BOOT_COMPLETED) return
         if (!MmkvManager.decodeStartOnBoot() || MmkvManager.getSelectServer().isNullOrEmpty()) return
-        V2RayServiceManager.startVService(context)
+        val guid = MmkvManager.getSelectServer() ?: return
+        V2RayServiceManager.startVService(context, guid)
     }
 }

@@ -304,7 +304,7 @@ class MainRecyclerAdapter(val activity: MainActivity) : RecyclerView.Adapter<Mai
                 mActivity.lifecycleScope.launch {
                     try {
                         delay(500)
-                        V2RayServiceManager.startVService(mActivity)
+                        V2RayServiceManager.startVService(mActivity, guid)
                     } catch (e: Exception) {
                         Log.e(AppConfig.TAG, "Failed to restart V2Ray service", e)
                     }
