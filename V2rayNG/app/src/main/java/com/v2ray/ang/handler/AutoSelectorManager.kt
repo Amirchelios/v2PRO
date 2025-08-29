@@ -266,6 +266,7 @@ object AutoSelectorManager {
         val availableProxies = guidList.mapNotNull { guid ->
             val profile = MmkvManager.decodeServerConfig(guid)
             val historicalMetrics = MmkvManager.decodeHistoricalMetrics(guid)
+            val serverAffiliationInfo = MmkvManager.decodeServerAffiliationInfo(guid)
 
             if (profile == null) {
                 Log.w(TAG, "Profile for GUID $guid not found in MMKV for historical selection, skipping.")
