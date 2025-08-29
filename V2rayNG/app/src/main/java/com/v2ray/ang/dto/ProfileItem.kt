@@ -11,6 +11,7 @@ data class ProfileItem(
     val configVersion: Int = 4,
     val configType: EConfigType,
     var subscriptionId: String = "",
+    var serverAffiliationId: String = "", // New field to link to ServerAffiliationInfo
     var addedTime: Long = System.currentTimeMillis(),
 
     var remarks: String = "",

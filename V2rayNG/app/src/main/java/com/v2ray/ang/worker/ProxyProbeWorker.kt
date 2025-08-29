@@ -29,12 +29,16 @@ class ProxyProbeWorker(appContext: Context, workerParams: WorkerParameters) :
 
             if (bestProxyGuid != null) {
                 Log.i(TAG, "Background probing completed. Best proxy found: ${MmkvManager.decodeServerConfig(bestProxyGuid)?.remarks}")
-                // If the best proxy is different from the currently selected one, trigger a switch
-                // This will be handled by the seamless switching mechanism later.
-                // For now, we just ensure the best proxy is updated in MMKV.
-                if (MmkvManager.getSelectServer() != bestProxyGuid) {
+                val currentSelectedGuid = MmkvManager.getSelectServer()
+                if (currentSelectedGuid != bestProxyGuid) {
                     MmkvManager.setSelectServer(bestProxyGuid)
                     Log.i(TAG, "Updated selected server to the new best proxy: ${MmkvManager.decodeServerConfig(bestProxyGuid)?.remarks}")
+
+                    // If V2Ray service is running, trigger a seamless switch
+                    if (com.v2ray.ang.handler.V2RayServiceManager.isRunning()) {
+                        Log.i(TAG, "V2Ray service is running, triggering proxy switch to $bestProxyGuid")
+                        com.v2ray.ang.handler.V2RayServiceManager.switchProxy(applicationContext, bestProxyGuid)
+                    }
                 }
             } else {
                 Log.w(TAG, "Background probing completed. No suitable proxy found.")

@@ -23,7 +23,8 @@ object AutoSelectorManager {
     const val AUTO_SELECTOR_REMARKS = "Auto Selector"
     private const val TCP_PING_TIMEOUT_MS = 3000 // 3 seconds for TCP ping
     private const val CONNECTION_TEST_TIMEOUT_MS = 5000 // 5 seconds for connection quality test
-    private const val PROBE_THROUGHPUT_SIZE_KB = 256 // Size of data to download for throughput test
+    private const val PROBE_THROUGHPUT_SIZE_BYTES = 256 * 1024 // Size of data to download for throughput test (256 KB)
+    private const val THROUGHPUT_TEST_URL = "https://speed.cloudflare.com/__down?bytes=262144" // Cloudflare test file (256KB)
 
     // Circuit Breaker settings
     private const val FAILURE_THRESHOLD = 3 // Number of consecutive failures to open the circuit
@@ -102,14 +103,14 @@ object AutoSelectorManager {
         }
 
         val shuffledGuids = guidList.shuffled(Random(System.currentTimeMillis()))
-        Log.d(TAG, "Shuffled GUIDs for auto-selection: $shuffledGuids")
+        Log.i(TAG, "Starting auto-selection for ${guidList.size} proxies. Shuffled GUIDs: $shuffledGuids")
 
         val allResults = mutableListOf<ProxyTestResult>()
 
         for (guid in shuffledGuids) {
             val profile = MmkvManager.decodeServerConfig(guid)
             if (profile == null) {
-                Log.w(TAG, "Profile for GUID $guid not found, skipping.")
+                Log.w(TAG, "Profile for GUID $guid not found in MMKV, skipping this server.")
                 continue
             }
 
@@ -139,7 +140,14 @@ object AutoSelectorManager {
 
             // Load historical metrics
             val historicalMetrics = MmkvManager.decodeHistoricalMetrics(guid) ?: HistoricalMetrics()
+            val serverAffiliationInfo = MmkvManager.decodeServerAffiliationInfo(guid) ?: ServerAffiliationInfo()
             val result = ProxyTestResult(guid, profile, lastTestTime = currentTime, historicalMetrics = historicalMetrics)
+
+            // Skip problematic servers unless in HALF_OPEN state for a probe
+            if (serverAffiliationInfo.isProblematic && cbState.state != CircuitBreakerState.State.HALF_OPEN) {
+                Log.d(TAG, "Proxy ${profile.remarks} (GUID: $guid) is marked problematic and not in HALF_OPEN state, skipping current test cycle.")
+                continue
+            }
 
             // 1. Perform TCP ping (for RTT and Jitter)
             val tcpPingTimes = mutableListOf<Long>()
@@ -152,8 +160,10 @@ object AutoSelectorManager {
             if (tcpPingTimes.isNotEmpty()) {
                 result.rtt = tcpPingTimes.average().toLong()
                 result.jitter = if (tcpPingTimes.size > 1) Utils.calculateJitter(tcpPingTimes) else 0L
+                Log.d(TAG, "TCP ping for ${profile.remarks} (GUID: $guid): RTT=${result.rtt}ms, Jitter=${result.jitter}ms (from ${tcpPingTimes.size} samples)")
+            } else {
+                Log.w(TAG, "TCP ping failed for ${profile.remarks} (GUID: $guid). RTT/Jitter will be -1.")
             }
-            Log.d(TAG, "TCP ping for ${profile.remarks}: RTT=${result.rtt}ms, Jitter=${result.jitter}ms")
 
             // 2. Perform connection quality test (for overall success and throughput)
             val connectionQuality = performConnectionQualityTest(context, guid)
@@ -162,33 +172,52 @@ object AutoSelectorManager {
 
             // 3. Perform a small throughput test (if connection is successful)
             if (result.connectionSuccessful) {
-                val throughput = performThroughputTest(context, guid, PROBE_THROUGHPUT_SIZE_KB)
+                val throughput = performThroughputTest(context, guid, THROUGHPUT_TEST_URL, PROBE_THROUGHPUT_SIZE_BYTES)
                 result.throughputKbps = throughput
-                Log.d(TAG, "Throughput for ${profile.remarks}: ${result.throughputKbps} Kbps")
+                Log.d(TAG, "Throughput for ${profile.remarks} (GUID: $guid): ${result.throughputKbps} Kbps")
+            } else {
+                Log.w(TAG, "Throughput test skipped for ${profile.remarks} (GUID: $guid) due to connection failure.")
             }
 
             // Update historical metrics and circuit breaker state
             updateHistoricalMetrics(result)
             MmkvManager.encodeHistoricalMetrics(guid, result.historicalMetrics!!) // Save updated historical metrics
 
+            // Update ServerAffiliationInfo
+            serverAffiliationInfo.testDelayMillis = result.rtt // Use RTT as primary delay metric
+            serverAffiliationInfo.lastSuccessfulTestTime = if (result.connectionSuccessful) currentTime else serverAffiliationInfo.lastSuccessfulTestTime
+
             if (!result.connectionSuccessful || result.rtt == -1L) {
                 cbState.consecutiveFailures++
                 cbState.lastFailureTime = currentTime
+                serverAffiliationInfo.failureCount++
+                serverAffiliationInfo.isStable = false
                 if (cbState.consecutiveFailures >= FAILURE_THRESHOLD) {
                     cbState.state = CircuitBreakerState.State.OPEN
-                    Log.w(TAG, "Circuit for ${profile.remarks} OPENED due to ${cbState.consecutiveFailures} consecutive failures.")
+                    serverAffiliationInfo.isProblematic = true
+                    Log.e(TAG, "Circuit for ${profile.remarks} (GUID: $guid) OPENED due to ${cbState.consecutiveFailures} consecutive failures. Marked as problematic.")
+                } else {
+                    Log.w(TAG, "Proxy ${profile.remarks} (GUID: $guid) failed test. Consecutive failures: ${cbState.consecutiveFailures}")
                 }
             } else {
                 cbState.consecutiveFailures = 0
                 cbState.state = CircuitBreakerState.State.CLOSED
+                serverAffiliationInfo.failureCount = 0 // Reset on success
+                serverAffiliationInfo.isProblematic = false
+                serverAffiliationInfo.isStable = true // Mark as stable if successful
+                Log.d(TAG, "Proxy ${profile.remarks} (GUID: $guid) passed test. Circuit CLOSED, marked as stable.")
             }
+            MmkvManager.encodeServerAffiliationInfo(guid, serverAffiliationInfo) // Save updated affiliation info
+            Log.d(TAG, "Updated ServerAffiliationInfo for ${profile.remarks} (GUID: $guid): isProblematic=${serverAffiliationInfo.isProblematic}, isStable=${serverAffiliationInfo.isStable}, failureCount=${serverAffiliationInfo.failureCount}")
 
             allResults.add(result)
         }
 
-        // Filter out proxies that are in OPEN state or failed all tests
+        // Filter out proxies that are in OPEN state or failed all tests, and problematic ones
         val availableProxies = allResults.filter {
-            circuitBreakers[it.guid]?.state != CircuitBreakerState.State.OPEN && it.connectionSuccessful && it.rtt != -1L
+            val cbState = circuitBreakers[it.guid]
+            val affInfo = MmkvManager.decodeServerAffiliationInfo(it.guid)
+            cbState?.state != CircuitBreakerState.State.OPEN && it.connectionSuccessful && it.rtt != -1L && !(affInfo?.isProblematic ?: false)
         }
 
         if (availableProxies.isEmpty()) {
@@ -204,12 +233,14 @@ object AutoSelectorManager {
         val bestProxyResult = scoredProxies.firstOrNull()?.first
 
         if (bestProxyResult != null) {
-            Log.i(TAG, "Selected best proxy: ${bestProxyResult.profile.remarks} (${bestProxyResult.profile.server}:${bestProxyResult.profile.serverPort}) with score ${scoredProxies.first().second}")
+            Log.i(TAG, "Auto-selection successful. Selected best proxy: ${bestProxyResult.profile.remarks} (GUID: ${bestProxyResult.guid}) with score ${scoredProxies.first().second}")
 
             // Update the selected server's remarks to "Auto Selector"
+            val originalRemarks = bestProxyResult.profile.remarks
             bestProxyResult.profile.remarks = AUTO_SELECTOR_REMARKS
             val newGuid = MmkvManager.encodeServerConfig(bestProxyResult.guid, bestProxyResult.profile) // Update existing or create new
             MmkvManager.setSelectServer(newGuid)
+            Log.d(TAG, "Proxy remarks updated from '$originalRemarks' to '${AUTO_SELECTOR_REMARKS}'. Selected GUID: $newGuid")
             return@withContext newGuid
         }
 
@@ -229,29 +260,52 @@ object AutoSelectorManager {
             Log.d(TAG, "GUID list is empty, no proxies to select from historical data.")
             return null
         }
+        Log.i(TAG, "Attempting to get best available proxy from historical data for ${guidList.size} proxies.")
 
         val availableProxies = guidList.mapNotNull { guid ->
             val profile = MmkvManager.decodeServerConfig(guid)
             val historicalMetrics = MmkvManager.decodeHistoricalMetrics(guid)
+            val serverAffiliationInfo = MmkvManager.decodeServerAffiliationInfo(guid)
 
-            if (profile != null && historicalMetrics != null && historicalMetrics.successCount > 0) {
-                // Create a dummy ProxyTestResult to use the existing scoring mechanism
-                ProxyTestResult(
-                    guid = guid,
-                    profile = profile,
-                    rtt = historicalMetrics.averageRtt,
-                    jitter = historicalMetrics.averageJitter,
-                    throughputKbps = historicalMetrics.averageThroughputKbps,
-                    connectionSuccessful = true, // Assume successful if historical data exists
-                    lastTestTime = historicalMetrics.lastUpdateTime,
-                    historicalMetrics = historicalMetrics
-                )
-            } else {
-                null
+            if (profile == null) {
+                Log.w(TAG, "Profile for GUID $guid not found in MMKV for historical selection, skipping.")
+                return@mapNotNull null
             }
-        }.filter {
+            if (historicalMetrics == null || historicalMetrics.successCount <= 0) {
+                Log.d(TAG, "No sufficient historical metrics for ${profile.remarks} (GUID: $guid), skipping.")
+                return@mapNotNull null
+            }
+            val serverAffiliationInfo = MmkvManager.decodeServerAffiliationInfo(guid)
+            if (serverAffiliationInfo == null) {
+                Log.w(TAG, "ServerAffiliationInfo for GUID $guid not found, skipping.")
+                return@mapNotNull null
+            }
+
+            // Filter out problematic servers from historical selection
+            if (serverAffiliationInfo.isProblematic) {
+                Log.d(TAG, "Proxy ${profile.remarks} (GUID: $guid) is marked problematic, skipping historical selection.")
+                return@mapNotNull null
+            }
             // Filter out proxies that are in OPEN state based on circuit breaker
-            circuitBreakers[it.guid]?.state != CircuitBreakerState.State.OPEN
+            if (circuitBreakers[guid]?.state == CircuitBreakerState.State.OPEN) {
+                Log.d(TAG, "Proxy ${profile.remarks} (GUID: $guid) is in OPEN circuit breaker state, skipping historical selection.")
+                return@mapNotNull null
+            }
+
+            // Create a dummy ProxyTestResult to use the existing scoring mechanism
+            ProxyTestResult(
+                guid = guid,
+                profile = profile,
+                rtt = historicalMetrics.averageRtt,
+                jitter = historicalMetrics.averageJitter,
+                throughputKbps = historicalMetrics.averageThroughputKbps,
+                connectionSuccessful = true, // Assume successful if historical data exists
+                lastTestTime = historicalMetrics.lastUpdateTime,
+                historicalMetrics = historicalMetrics
+            )
+        }.sortedByDescending {
+            // Prioritize stable servers in historical selection
+            MmkvManager.decodeServerAffiliationInfo(it.guid)?.isStable ?: false
         }
 
         if (availableProxies.isEmpty()) {
@@ -264,7 +318,11 @@ object AutoSelectorManager {
         }.sortedBy { it.second }
 
         val bestProxyGuid = scoredProxies.firstOrNull()?.first?.guid
-        Log.i(TAG, "Selected best proxy from historical data: ${MmkvManager.decodeServerConfig(bestProxyGuid!!)?.remarks} with score ${scoredProxies.first().second}")
+        if (bestProxyGuid != null) {
+            Log.i(TAG, "Selected best proxy from historical data: ${MmkvManager.decodeServerConfig(bestProxyGuid)?.remarks} (GUID: $bestProxyGuid) with score ${scoredProxies.first().second}")
+        } else {
+            Log.w(TAG, "No suitable proxy found from historical data after scoring.")
+        }
         return bestProxyGuid
     }
 
@@ -323,6 +381,12 @@ object AutoSelectorManager {
             score += PENALTY_FAILURE
         }
 
+        // Add a bonus for stable servers
+        val affInfo = MmkvManager.decodeServerAffiliationInfo(result.guid)
+        if (affInfo?.isStable == true) {
+            score -= (PENALTY_FAILURE * 0.5) // Reduce score for stable servers
+        }
+
         // Incorporate historical failure rate
         if (metrics.successCount + metrics.failureCount > 0) {
             val failureRate = metrics.failureCount.toDouble() / (metrics.successCount + metrics.failureCount)
@@ -361,9 +425,10 @@ object AutoSelectorManager {
             socket.connect(InetSocketAddress(host, port), TCP_PING_TIMEOUT_MS)
             val time = System.currentTimeMillis() - start
             socket.close()
+            Log.v(TAG, "TCP ping successful for ${profile.remarks} ($host:$port) in ${time}ms.")
             time
         } catch (e: Exception) {
-            Log.e(TAG, "TCP ping error for ${profile.remarks} ($host:$port): ${e.message}")
+            Log.e(TAG, "TCP ping error for ${profile.remarks} ($host:$port): ${e.message}", e)
             -1L
         }
     }
@@ -388,7 +453,7 @@ object AutoSelectorManager {
             // A successful ping (non-negative and within a reasonable range) indicates good quality
             pingResult > 0 && pingResult < CONNECTION_TEST_TIMEOUT_MS
         } catch (e: Exception) {
-            Log.e(TAG, "Connection quality test error for GUID $guid: ${e.message}")
+            Log.e(TAG, "Connection quality test error for GUID $guid: ${e.message}", e)
             false
         }
     }
@@ -399,31 +464,47 @@ object AutoSelectorManager {
      *
      * @param context The application context.
      * @param guid The GUID of the profile to test.
-     * @param sizeKb The target size of data to "download" in KB.
+     * @param downloadUrl The URL to download from for the throughput test.
+     * @param expectedSizeBytes The expected size of the downloaded data in bytes.
      * @return Estimated throughput in Kbps, or -1L if failed.
      */
-    private fun performThroughputTest(context: Context, guid: String, sizeKb: Int): Long {
+    private fun performThroughputTest(context: Context, guid: String, downloadUrl: String, expectedSizeBytes: Int): Long {
         return try {
             val conf = V2rayConfigManager.getV2rayConfig4Speedtest(context, guid)
             if (!conf.status) {
+                Log.w(TAG, "Failed to get V2Ray config for speedtest for throughput test for GUID $guid.")
                 return -1L
             }
-            // Simulate a download by measuring the time it takes to "process" a certain amount of data
-            // This is a placeholder and would ideally involve actual data transfer.
+
+            val socksPort = conf.socksPort
+            if (socksPort == 0) {
+                Log.w(TAG, "Socks port not available for throughput test for GUID $guid.")
+                return -1L
+            }
+
             val startTime = System.currentTimeMillis()
-            // Simulate work proportional to sizeKb
-            Thread.sleep(min(500, sizeKb).toLong()) // Simulate 1ms per KB, max 500ms
+            val content = HttpUtil.getUrlContentWithUserAgent(downloadUrl, CONNECTION_TEST_TIMEOUT_MS, socksPort)
             val endTime = System.currentTimeMillis()
             val durationMs = endTime - startTime
 
-            if (durationMs > 0) {
-                // Calculate Kbps: (sizeKb * 8 bits/byte * 1000 ms/s) / durationMs
-                (sizeKb * 8 * 1000L) / durationMs
+            if (content.isNullOrEmpty()) {
+                Log.w(TAG, "Throughput test: No content received for GUID $guid.")
+                return -1L
+            }
+
+            // Assuming content.length is roughly the number of bytes downloaded
+            val downloadedBytes = content.toByteArray().size
+            Log.d(TAG, "Throughput test: Downloaded $downloadedBytes bytes in $durationMs ms for GUID $guid.")
+
+            if (durationMs > 0 && downloadedBytes > 0) {
+                // Calculate Kbps: (downloadedBytes * 8 bits/byte) / (durationMs / 1000 ms/s)
+                // = (downloadedBytes * 8 * 1000) / durationMs
+                (downloadedBytes * 8 * 1000L) / durationMs
             } else {
                 -1L
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Throughput test error for GUID $guid: ${e.message}")
+            Log.e(TAG, "Throughput test error for GUID $guid: ${e.message}", e)
             -1L
         }
     }

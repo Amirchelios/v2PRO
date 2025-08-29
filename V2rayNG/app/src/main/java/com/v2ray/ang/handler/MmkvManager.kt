@@ -121,7 +121,15 @@ object MmkvManager {
      */
     fun encodeServerConfig(guid: String, config: ProfileItem): String {
         val key = guid.ifBlank { Utils.getUuid() }
+        val serverAffiliationId = config.serverAffiliationId.ifBlank { Utils.getUuid() }
+        config.serverAffiliationId = serverAffiliationId
+
         profileFullStorage.encode(key, JsonUtil.toJson(config))
+        // Ensure ServerAffiliationInfo exists for this profile
+        if (decodeServerAffiliationInfo(serverAffiliationId) == null) {
+            encodeServerAffiliationInfo(serverAffiliationId, ServerAffiliationInfo())
+        }
+
         val serverList = decodeServerList()
         if (!serverList.contains(key)) {
             serverList.add(0, key) // Add to the beginning for new servers
@@ -164,7 +172,9 @@ object MmkvManager {
         encodeServerList(serverList)
         profileFullStorage.remove(guid)
         //profileStorage.remove(guid)
-        serverAffStorage.remove(guid)
+        decodeServerConfig(guid)?.serverAffiliationId?.let {
+            serverAffStorage.remove(it) // Remove associated ServerAffiliationInfo
+        }
     }
 
     /**
@@ -214,7 +224,7 @@ object MmkvManager {
         }
         val aff = decodeServerAffiliationInfo(guid) ?: ServerAffiliationInfo()
         aff.testDelayMillis = testResult
-        serverAffStorage.encode(guid, JsonUtil.toJson(aff))
+        encodeServerAffiliationInfo(guid, aff)
     }
 
     /**
@@ -226,7 +236,7 @@ object MmkvManager {
         keys?.forEach { key ->
             decodeServerAffiliationInfo(key)?.let { aff ->
                 aff.testDelayMillis = 0
-                serverAffStorage.encode(key, JsonUtil.toJson(aff))
+                encodeServerAffiliationInfo(key, aff)
             }
         }
     }
@@ -294,6 +304,16 @@ object MmkvManager {
     }
 
     //endregion
+
+    /**
+     * Encodes the server affiliation information.
+     *
+     * @param guid The server GUID.
+     * @param aff The server affiliation information.
+     */
+    fun encodeServerAffiliationInfo(guid: String, aff: ServerAffiliationInfo) {
+        serverAffStorage.encode(guid, JsonUtil.toJson(aff))
+    }
 
     //region Historical Metrics
     /**
