@@ -275,7 +275,6 @@ object AutoSelectorManager {
                 Log.d(TAG, "No sufficient historical metrics for ${profile.remarks} (GUID: $guid), skipping.")
                 return@mapNotNull null
             }
-            // Removed duplicate declaration of serverAffiliationInfo
             if (serverAffiliationInfo == null) {
                 Log.w(TAG, "ServerAffiliationInfo for GUID $guid not found, skipping.")
                 return@mapNotNull null
@@ -483,7 +482,7 @@ object AutoSelectorManager {
             }
 
             val startTime = System.currentTimeMillis()
-            val content = HttpUtil.getUrlContentWithUserAgent(downloadUrl, CONNECTION_TEST_TIMEOUT_MS, socksPort)
+            val content = HttpUtil.getUrlContentWithUserAgent(downloadUrl, CONNECTION_TEST_TIMEOUT_MS, socksPort!!)
             val endTime = System.currentTimeMillis()
             val durationMs = endTime - startTime
 
