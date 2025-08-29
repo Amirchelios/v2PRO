@@ -9,6 +9,7 @@ import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.SpeedtestManager
 import com.v2ray.ang.handler.V2rayConfigManager
 import com.v2ray.ang.util.Utils
+import com.v2ray.ang.util.HttpUtil
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.InetSocketAddress
@@ -265,7 +266,6 @@ object AutoSelectorManager {
         val availableProxies = guidList.mapNotNull { guid ->
             val profile = MmkvManager.decodeServerConfig(guid)
             val historicalMetrics = MmkvManager.decodeHistoricalMetrics(guid)
-            val serverAffiliationInfo = MmkvManager.decodeServerAffiliationInfo(guid)
 
             if (profile == null) {
                 Log.w(TAG, "Profile for GUID $guid not found in MMKV for historical selection, skipping.")
@@ -275,7 +275,7 @@ object AutoSelectorManager {
                 Log.d(TAG, "No sufficient historical metrics for ${profile.remarks} (GUID: $guid), skipping.")
                 return@mapNotNull null
             }
-            val serverAffiliationInfo = MmkvManager.decodeServerAffiliationInfo(guid)
+            // Removed duplicate declaration of serverAffiliationInfo
             if (serverAffiliationInfo == null) {
                 Log.w(TAG, "ServerAffiliationInfo for GUID $guid not found, skipping.")
                 return@mapNotNull null
@@ -493,7 +493,7 @@ object AutoSelectorManager {
             }
 
             // Assuming content.length is roughly the number of bytes downloaded
-            val downloadedBytes = content.toByteArray().size
+            val downloadedBytes = content?.toByteArray()?.size ?: 0
             Log.d(TAG, "Throughput test: Downloaded $downloadedBytes bytes in $durationMs ms for GUID $guid.")
 
             if (durationMs > 0 && downloadedBytes > 0) {

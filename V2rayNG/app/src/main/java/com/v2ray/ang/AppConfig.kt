@@ -80,7 +80,6 @@ object AppConfig {
     const val BROADCAST_ACTION_ACTIVITY = "com.v2ray.ang.action.activity"
     const val BROADCAST_ACTION_WIDGET_CLICK = "com.v2ray.ang.action.widget.click"
     const val BROADCAST_ACTION_NETWORK_CHANGE = "com.v2ray.ang.action.network_change"
-    const val BROADCAST_ACTION_NETWORK_CHANGE = "com.v2ray.ang.action.network_change"
 
     /** Tasker extras. */
     const val TASKER_EXTRA_BUNDLE = "com.twofortyfouram.locale.intent.extra.BUNDLE"

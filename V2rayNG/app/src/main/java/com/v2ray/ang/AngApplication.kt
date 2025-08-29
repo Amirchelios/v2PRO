@@ -39,7 +39,7 @@ class AngApplication : MultiDexApplication() {
 
     private val networkChangeHandler = Handler(Looper.getMainLooper())
     private val networkChangeRunnable = Runnable {
-        MessageUtil.sendMsg2Activity(this, AppConfig.BROADCAST_ACTION_NETWORK_CHANGE, "")
+        MessageUtil.sendMsg2UI(this, AppConfig.MSG_STATE_RESTART, "")
     }
 
     private val networkCallback = object : ConnectivityManager.NetworkCallback() {
