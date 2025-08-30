@@ -329,21 +329,14 @@ object SettingsManager {
      * @return The locale.
      */
     fun getLocale(): Locale {
-        val langCode =
-            MmkvManager.decodeSettingsString(AppConfig.PREF_LANGUAGE) ?: Language.AUTO.code
+        val langCode = MmkvManager.decodeSettingsString(AppConfig.PREF_LANGUAGE) ?: Language.AUTO.code
         val language = Language.fromCode(langCode)
 
         return when (language) {
             Language.AUTO -> Utils.getSysLocale()
             Language.ENGLISH -> Locale.ENGLISH
-            Language.CHINA -> Locale.CHINA
-            Language.TRADITIONAL_CHINESE -> Locale.TRADITIONAL_CHINESE
-            Language.VIETNAMESE -> Locale("vi")
-            Language.RUSSIAN -> Locale("ru")
             Language.PERSIAN -> Locale("fa")
-            Language.ARABIC -> Locale("ar")
-            Language.BANGLA -> Locale("bn")
-            Language.BAKHTIARI -> Locale("bqi", "IR")
+            else -> Locale.ENGLISH // Default to English if an unsupported language is selected
         }
     }
 

@@ -27,15 +27,6 @@
     <string name="menu_item_del_config">Delete config</string>
     <string name="menu_item_import_config_qrcode">Import config from QRcode</string>
     <string name="menu_item_import_config_clipboard">Import config from Clipboard</string>
-    <string name="menu_item_import_config_local">Import config from locally</string>
-    <string name="menu_item_import_config_manually_vmess">Type manually[VMess]</string>
-    <string name="menu_item_import_config_manually_vless">Type manually[VLESS]</string>
-    <string name="menu_item_import_config_manually_ss">Type manually[Shadowsocks]</string>
-    <string name="menu_item_import_config_manually_socks">Type manually[SOCKS]</string>
-    <string name="menu_item_import_config_manually_http">Type manually[HTTP]</string>
-    <string name="menu_item_import_config_manually_trojan">Type manually[Trojan]</string>
-    <string name="menu_item_import_config_manually_wireguard">Type manually[Wireguard]</string>
-    <string name="menu_item_import_config_manually_hysteria2">Type manually[Hysteria2]</string>
     <string name="del_config_comfirm">Confirm delete ?</string>
     <string name="del_invalid_config_comfirm">Please test before deleting! Confirm delete ?</string>
     <string name="server_lab_remarks">remarks</string>
@@ -237,9 +228,6 @@
     <string name="summary_configuration_backup">Storage location: [%s], The backup will be cleared after uninstalling the app or clearing the storage</string>
     <string name="title_configuration_restore">Restore configuration</string>
     <string name="title_configuration_share">Share configuration</string>
-
-    <string name="title_pref_promotion">Promotion</string>
-    <string name="summary_pref_promotion">Promotion,click for details(Donation can be removed)</string>
 
     <string name="title_pref_auto_update_subscription">Automatic update subscriptions</string>
     <string name="summary_pref_auto_update_subscription">Update your subscriptions automatically at set intervals in the background. Depending on the device, this feature may not always work</string>
