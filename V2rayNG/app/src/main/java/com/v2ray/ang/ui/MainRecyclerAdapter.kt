@@ -38,12 +38,6 @@ class MainRecyclerAdapter(val activity: MainActivity) : RecyclerView.Adapter<Mai
     }
 
     private var mActivity: MainActivity = activity
-    private val share_method: Array<out String> by lazy {
-        mActivity.resources.getStringArray(R.array.share_method)
-    }
-    private val share_method_more: Array<out String> by lazy {
-        mActivity.resources.getStringArray(R.array.share_method_more)
-    }
     var isRunning = false
     private val doubleColumnDisplay = MmkvManager.decodeSettingsBool(AppConfig.PREF_DOUBLE_COLUMN_DISPLAY, false)
 
@@ -92,33 +86,13 @@ class MainRecyclerAdapter(val activity: MainActivity) : RecyclerView.Adapter<Mai
                 holder.itemMainBinding.layoutShare.visibility = View.GONE
                 holder.itemMainBinding.layoutEdit.visibility = View.GONE
                 holder.itemMainBinding.layoutRemove.visibility = View.GONE
-                holder.itemMainBinding.layoutMore.visibility = View.VISIBLE
+                holder.itemMainBinding.layoutMore.visibility = View.GONE // Also hide "more" button
 
-                //share method
-                val shareOptions = if (isCustom) share_method_more.asList().takeLast(3) else share_method_more.asList()
-
-                holder.itemMainBinding.layoutMore.setOnClickListener {
-                    shareServer(guid, profile, position, shareOptions, if (isCustom) 2 else 0)
-                }
             } else {
-                holder.itemMainBinding.layoutShare.visibility = View.VISIBLE
-                holder.itemMainBinding.layoutEdit.visibility = View.VISIBLE
-                holder.itemMainBinding.layoutRemove.visibility = View.VISIBLE
+                holder.itemMainBinding.layoutShare.visibility = View.GONE
+                holder.itemMainBinding.layoutEdit.visibility = View.GONE
+                holder.itemMainBinding.layoutRemove.visibility = View.GONE
                 holder.itemMainBinding.layoutMore.visibility = View.GONE
-
-                //share method
-                val shareOptions = if (isCustom) share_method.asList().takeLast(1) else share_method.asList()
-
-                holder.itemMainBinding.layoutShare.setOnClickListener {
-                    shareServer(guid, profile, position, shareOptions, if (isCustom) 2 else 0)
-                }
-
-                holder.itemMainBinding.layoutEdit.setOnClickListener {
-                    editServer(guid, profile)
-                }
-                holder.itemMainBinding.layoutRemove.setOnClickListener {
-                    removeServer(guid, position)
-                }
             }
 
             holder.itemMainBinding.infoContainer.setOnClickListener {
@@ -178,20 +152,9 @@ class MainRecyclerAdapter(val activity: MainActivity) : RecyclerView.Adapter<Mai
      * @param skip The number of options to skip
      */
     private fun shareServer(guid: String, profile: ProfileItem, position: Int, shareOptions: List<String>, skip: Int) {
-        AlertDialog.Builder(mActivity).setItems(shareOptions.toTypedArray()) { _, i ->
-            try {
-                when (i + skip) {
-                    0 -> showQRCode(guid)
-                    1 -> share2Clipboard(guid)
-                    2 -> shareFullContent(guid)
-                    3 -> editServer(guid, profile)
-                    4 -> removeServer(guid, position)
-                    else -> mActivity.toast("else")
-                }
-            } catch (e: Exception) {
-                Log.e(AppConfig.TAG, "Error when sharing server", e)
-            }
-        }.show()
+        // Sharing functionality is removed as per user request.
+        // This function is now effectively a no-op or can be removed entirely if no other calls exist.
+        // For now, it's left as an empty function to avoid compilation errors if still referenced.
     }
 
     /**
@@ -240,14 +203,7 @@ class MainRecyclerAdapter(val activity: MainActivity) : RecyclerView.Adapter<Mai
      * @param profile The server configuration
      */
     private fun editServer(guid: String, profile: ProfileItem) {
-        val intent = Intent().putExtra("guid", guid)
-            .putExtra("isRunning", isRunning)
-            .putExtra("createConfigType", profile.configType.value)
-        if (profile.configType == EConfigType.CUSTOM) {
-            mActivity.startActivity(intent.setClass(mActivity, ServerCustomConfigActivity::class.java))
-        } else {
-            mActivity.startActivity(intent.setClass(mActivity, ServerActivity::class.java))
-        }
+        // Editing functionality is removed as per user request.
     }
 
     /**
@@ -257,22 +213,7 @@ class MainRecyclerAdapter(val activity: MainActivity) : RecyclerView.Adapter<Mai
      * @param position The position in the list
      */
     private fun removeServer(guid: String, position: Int) {
-        if (guid != MmkvManager.getSelectServer()) {
-            if (MmkvManager.decodeSettingsBool(AppConfig.PREF_CONFIRM_REMOVE) == true) {
-                AlertDialog.Builder(mActivity).setMessage(R.string.del_config_comfirm)
-                    .setPositiveButton(android.R.string.ok) { _, _ ->
-                        removeServerSub(guid, position)
-                    }
-                    .setNegativeButton(android.R.string.cancel) { _, _ ->
-                        //do noting
-                    }
-                    .show()
-            } else {
-                removeServerSub(guid, position)
-            }
-        } else {
-            application.toast(R.string.toast_action_not_allowed)
-        }
+        // Removing functionality is removed as per user request.
     }
 
     /**
@@ -358,5 +299,6 @@ class MainRecyclerAdapter(val activity: MainActivity) : RecyclerView.Adapter<Mai
     }
 
     override fun onItemDismiss(position: Int) {
+        // No-op as per user request to remove delete functionality
     }
 }

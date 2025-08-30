@@ -497,11 +497,11 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
 
         lifecycleScope.launch(Dispatchers.IO) {
             val count = mainViewModel.updateConfigViaSubAll()
-            delay(500L)
             launch(Dispatchers.Main) {
                 if (count > 0) {
                     toast(getString(R.string.title_update_config_count, count))
                     mainViewModel.reloadServerList()
+                    initGroupTab() // Refresh the group tabs
                 } else {
                     toastError(R.string.toast_failure)
                 }
