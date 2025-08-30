@@ -44,4 +44,12 @@
         android:id="@+id/sort_by_test_results"
         android:title="@string/title_sort_by_test_results"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/per_app_proxy_settings"
+        android:title="@string/menu_item_per_app_proxy_settings"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/routing_setting"
+        android:title="@string/menu_item_routing_setting"
+        app:showAsAction="never" />
 </menu>
