@@ -131,6 +131,10 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         title = getString(R.string.title_server)
         setSupportActionBar(binding.toolbar)
 
+        binding.btnUpdateSubscription.setOnClickListener {
+            importConfigViaSub()
+        }
+
         binding.fab.setOnClickListener {
             if (mainViewModel.isRunning.value == true) {
                 V2RayServiceManager.stopVService(this)
@@ -357,6 +361,11 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
                 false
             }
         }
+
+        // Show the subscription update button only if there are subscriptions
+        val (listId, _) = mainViewModel.getSubscriptions(this)
+        binding.btnUpdateSubscription.isVisible = !listId.isNullOrEmpty() && listId.size > 1
+
         return super.onCreateOptionsMenu(menu)
     }
 
@@ -368,32 +377,6 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
 
         R.id.import_clipboard -> {
             importClipboard()
-            true
-        }
-
-
-        R.id.export_all -> {
-            exportAll()
-            true
-        }
-
-        R.id.ping_all -> {
-            toast(getString(R.string.connection_test_testing_count, mainViewModel.serversCache.count()))
-            mainViewModel.testAllTcping()
-            true
-        }
-
-        R.id.real_ping_all -> {
-            toast(getString(R.string.connection_test_testing_count, mainViewModel.serversCache.count()))
-            mainViewModel.testAllRealPing()
-            true
-        }
-
-        R.id.intelligent_selection_all -> {
-            if (MmkvManager.decodeSettingsString(AppConfig.PREF_OUTBOUND_DOMAIN_RESOLVE_METHOD, "1") != "0") {
-                toast(getString(R.string.pre_resolving_domain))
-            }
-            mainViewModel.createIntelligentSelectionAll()
             true
         }
 
@@ -412,21 +395,10 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
             true
         }
 
-        R.id.del_invalid_config -> {
-            delInvalidConfig()
-            true
-        }
-
         R.id.sort_by_test_results -> {
             sortByTestResults()
             true
         }
-
-        R.id.sub_update -> {
-            importConfigViaSub()
-            true
-        }
-
 
         else -> super.onOptionsItemSelected(item)
     }

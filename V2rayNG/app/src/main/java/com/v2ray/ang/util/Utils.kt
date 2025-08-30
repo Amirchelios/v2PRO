@@ -581,4 +581,21 @@ object Utils {
         val variance = pingTimes.map { (it - mean) * (it - mean) }.average()
         return kotlin.math.sqrt(variance).toLong()
     }
+
+    /**
+     * Converts a two-letter ISO country code (Alpha-2) to its corresponding Unicode flag emoji.
+     *
+     * @param countryCode The two-letter ISO country code (e.g., "US", "TR").
+     * @return The Unicode flag emoji, or an empty string if the country code is invalid.
+     */
+    fun countryCodeToEmoji(countryCode: String): String {
+        if (countryCode.length != 2) {
+            return ""
+        }
+
+        val firstLetter = Character.codePointAt(countryCode, 0) - 0x41 + 0x1F1E6
+        val secondLetter = Character.codePointAt(countryCode, 1) - 0x41 + 0x1F1E6
+
+        return String(Character.toChars(firstLetter)) + String(Character.toChars(secondLetter))
+    }
 }

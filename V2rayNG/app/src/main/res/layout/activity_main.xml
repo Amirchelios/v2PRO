@@ -18,7 +18,18 @@
             <androidx.appcompat.widget.Toolbar
                 android:id="@+id/toolbar"
                 android:layout_width="match_parent"
-                android:layout_height="?attr/actionBarSize" />
+                android:layout_height="?attr/actionBarSize" >
+                <ImageButton
+                    android:id="@+id/btn_update_subscription"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="end"
+                    android:layout_marginEnd="16dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/title_sub_update"
+                    android:src="@drawable/ic_cloud_download_24dp"
+                    android:visibility="gone" />
+            </androidx.appcompat.widget.Toolbar>
 
         </com.google.android.material.appbar.AppBarLayout>
 
@@ -81,11 +92,11 @@
                             android:layout_width="wrap_content"
                             android:layout_height="match_parent"
                             android:gravity="start|center"
-                            android:maxLines="2"
-                            android:minLines="1"
                             android:paddingStart="@dimen/padding_spacing_dp16"
                             android:text="@string/connection_test_pending"
-                            android:textAppearance="@style/TextAppearance.AppCompat.Small" />
+                            android:fontFamily="@font/montserrat_thin"
+                            android:textSize="16sp"
+                            android:textColor="?android:attr/textColorPrimary" />
 
                     </LinearLayout>
                 </LinearLayout>
@@ -125,4 +136,3 @@
     </com.google.android.material.navigation.NavigationView>
 
 </androidx.drawerlayout.widget.DrawerLayout>
-

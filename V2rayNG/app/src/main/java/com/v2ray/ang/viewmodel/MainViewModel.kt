@@ -476,7 +476,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
 
                 AppConfig.MSG_MEASURE_DELAY_SUCCESS -> {
-                    updateTestResultAction.value = intent.getStringExtra("content")
+                    val originalContent = intent.getStringExtra("content")
+                    originalContent?.let {
+                        val regex = Regex("\\(([A-Z]{2})\\)")
+                        val matchResult = regex.find(it)
+                        val countryCode = matchResult?.groups?.get(1)?.value
+
+                        var formattedContent = it
+                        if (countryCode != null) {
+                            val flagEmoji = Utils.countryCodeToEmoji(countryCode)
+                            formattedContent = it.replace("($countryCode)", flagEmoji)
+                        }
+                        updateTestResultAction.value = formattedContent
+                    }
                 }
 
                 AppConfig.MSG_MEASURE_CONFIG_SUCCESS -> {
