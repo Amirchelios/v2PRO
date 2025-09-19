@@ -5,7 +5,8 @@ data class ServerAffiliationInfo(
     var isProblematic: Boolean = false,
     var isStable: Boolean = false,
     var lastSuccessfulTestTime: Long = 0L,
-    var failureCount: Int = 0
+    var failureCount: Int = 0,
+    var isServiceAccessible: Boolean = true // New field to track service accessibility
 ) {
     fun getTestDelayString(): String {
         if (testDelayMillis == 0L) {

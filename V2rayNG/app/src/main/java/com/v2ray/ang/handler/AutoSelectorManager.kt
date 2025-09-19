@@ -26,6 +26,11 @@ object AutoSelectorManager {
     private const val CONNECTION_TEST_TIMEOUT_MS = 5000 // 5 seconds for connection quality test
     private const val PROBE_THROUGHPUT_SIZE_BYTES = 256 * 1024 // Size of data to download for throughput test (256 KB)
     private const val THROUGHPUT_TEST_URL = "https://speed.cloudflare.com/__down?bytes=262144" // Cloudflare test file (256KB)
+    private val SERVICE_ACCESSIBILITY_TEST_URLS = listOf(
+        "https://www.youtube.com/",
+        "https://www.instagram.com/"
+    ) // Example URLs for service accessibility test
+    private const val MIN_CONTENT_SIZE_BYTES = 1024 // Minimum content size in bytes (1KB) to consider a service accessible
 
     // Circuit Breaker settings
     private const val FAILURE_THRESHOLD = 3 // Number of consecutive failures to open the circuit
@@ -65,6 +70,7 @@ object AutoSelectorManager {
         var packetLoss: Double = -1.0, // Packet loss percentage
         var throughputKbps: Long = -1L, // Throughput in Kbps
         var connectionSuccessful: Boolean = false, // Overall connection success
+        var serviceAccessible: Boolean = false, // New field for service accessibility
         var lastTestTime: Long = 0L,
         var historicalMetrics: HistoricalMetrics? = null
     )
@@ -180,19 +186,25 @@ object AutoSelectorManager {
                 Log.w(TAG, "Throughput test skipped for ${profile.remarks} (GUID: $guid) due to connection failure.")
             }
 
+            // 4. Perform service accessibility test
+            val serviceAccessible = performServiceAccessibilityTest(context, guid, SERVICE_ACCESSIBILITY_TEST_URLS)
+            result.serviceAccessible = serviceAccessible
+            Log.d(TAG, "Service accessibility test for ${profile.remarks}: ${if (serviceAccessible) "Accessible" else "Blocked"}")
+
             // Update historical metrics and circuit breaker state
             updateHistoricalMetrics(result)
             MmkvManager.encodeHistoricalMetrics(guid, result.historicalMetrics!!) // Save updated historical metrics
 
             // Update ServerAffiliationInfo
             serverAffiliationInfo.testDelayMillis = result.rtt // Use RTT as primary delay metric
-            serverAffiliationInfo.lastSuccessfulTestTime = if (result.connectionSuccessful) currentTime else serverAffiliationInfo.lastSuccessfulTestTime
+            serverAffiliationInfo.lastSuccessfulTestTime = if (result.connectionSuccessful && result.serviceAccessible) currentTime else serverAffiliationInfo.lastSuccessfulTestTime
 
-            if (!result.connectionSuccessful || result.rtt == -1L) {
+            if (!result.connectionSuccessful || result.rtt == -1L || !result.serviceAccessible) { // Include service accessibility in failure condition
                 cbState.consecutiveFailures++
                 cbState.lastFailureTime = currentTime
                 serverAffiliationInfo.failureCount++
                 serverAffiliationInfo.isStable = false
+                serverAffiliationInfo.isServiceAccessible = result.serviceAccessible // Update service accessibility status
                 if (cbState.consecutiveFailures >= FAILURE_THRESHOLD) {
                     cbState.state = CircuitBreakerState.State.OPEN
                     serverAffiliationInfo.isProblematic = true
@@ -206,19 +218,20 @@ object AutoSelectorManager {
                 serverAffiliationInfo.failureCount = 0 // Reset on success
                 serverAffiliationInfo.isProblematic = false
                 serverAffiliationInfo.isStable = true // Mark as stable if successful
+                serverAffiliationInfo.isServiceAccessible = true // Mark as accessible on success
                 Log.d(TAG, "Proxy ${profile.remarks} (GUID: $guid) passed test. Circuit CLOSED, marked as stable.")
             }
             MmkvManager.encodeServerAffiliationInfo(guid, serverAffiliationInfo) // Save updated affiliation info
-            Log.d(TAG, "Updated ServerAffiliationInfo for ${profile.remarks} (GUID: $guid): isProblematic=${serverAffiliationInfo.isProblematic}, isStable=${serverAffiliationInfo.isStable}, failureCount=${serverAffiliationInfo.failureCount}")
+            Log.d(TAG, "Updated ServerAffiliationInfo for ${profile.remarks} (GUID: $guid): isProblematic=${serverAffiliationInfo.isProblematic}, isStable=${serverAffiliationInfo.isStable}, failureCount=${serverAffiliationInfo.failureCount}, isServiceAccessible=${serverAffiliationInfo.isServiceAccessible}")
 
             allResults.add(result)
         }
 
-        // Filter out proxies that are in OPEN state or failed all tests, and problematic ones
+        // Filter out proxies that are in OPEN state or failed all tests, and problematic ones, and those with inaccessible services
         val availableProxies = allResults.filter {
             val cbState = circuitBreakers[it.guid]
             val affInfo = MmkvManager.decodeServerAffiliationInfo(it.guid)
-            cbState?.state != CircuitBreakerState.State.OPEN && it.connectionSuccessful && it.rtt != -1L && !(affInfo?.isProblematic ?: false)
+            cbState?.state != CircuitBreakerState.State.OPEN && it.connectionSuccessful && it.rtt != -1L && !(affInfo?.isProblematic ?: false) && (affInfo?.isServiceAccessible ?: false)
         }
 
         if (availableProxies.isEmpty()) {
@@ -300,6 +313,7 @@ object AutoSelectorManager {
                 jitter = historicalMetrics.averageJitter,
                 throughputKbps = historicalMetrics.averageThroughputKbps,
                 connectionSuccessful = true, // Assume successful if historical data exists
+                serviceAccessible = serverAffiliationInfo.isServiceAccessible, // Use historical service accessibility
                 lastTestTime = historicalMetrics.lastUpdateTime,
                 historicalMetrics = historicalMetrics
             )
@@ -375,6 +389,11 @@ object AutoSelectorManager {
         var score = (WEIGHT_RTT * normalizedRtt) +
                 (WEIGHT_JITTER * normalizedJitter) +
                 (WEIGHT_THROUGHPUT * normalizedThroughput)
+
+        // Apply penalty if service is not accessible
+        if (!result.serviceAccessible) {
+            score += PENALTY_FAILURE * 2 // Heavier penalty for service inaccessibility
+        }
 
         // Apply penalty for any non-successful connection, even if it passed initial filters
         if (!result.connectionSuccessful || result.rtt == -1L) {
@@ -507,5 +526,45 @@ object AutoSelectorManager {
             Log.e(TAG, "Throughput test error for GUID $guid: ${e.message}", e)
             -1L
         }
+    }
+
+    /**
+     * Performs a service accessibility test by attempting to connect to a well-known service URL.
+     *
+     * @param context The application context.
+     * @param guid The GUID of the profile to test.
+     * @param serviceUrls The list of URLs of the services to test (e.g., YouTube, Instagram).
+     * @return True if all services are accessible, false otherwise.
+     */
+    private fun performServiceAccessibilityTest(context: Context, guid: String, serviceUrls: List<String>): Boolean {
+        val conf = V2rayConfigManager.getV2rayConfig4Speedtest(context, guid)
+        if (!conf.status) {
+            Log.w(TAG, "Failed to get V2Ray config for service accessibility test for GUID $guid.")
+            return false
+        }
+
+        val socksPort = conf.socksPort
+        if (socksPort == 0) {
+            Log.w(TAG, "Socks port not available for service accessibility test for GUID $guid.")
+            return false
+        }
+
+        for (serviceUrl in serviceUrls) {
+            try {
+                // Attempt to get content from the service URL through the proxy
+                val content = HttpUtil.getUrlContentWithUserAgent(serviceUrl, CONNECTION_TEST_TIMEOUT_MS, socksPort!!)
+                val downloadedBytes = content?.toByteArray()?.size ?: 0
+
+                if (content.isNullOrEmpty() || downloadedBytes < MIN_CONTENT_SIZE_BYTES) {
+                    Log.w(TAG, "Service accessibility test failed for $serviceUrl (GUID: $guid): No content or content too small ($downloadedBytes bytes).")
+                    return false // If any service fails, the overall test fails
+                }
+                Log.d(TAG, "Service accessibility test successful for $serviceUrl (GUID: $guid). Downloaded $downloadedBytes bytes.")
+            } catch (e: Exception) {
+                Log.e(TAG, "Service accessibility test error for $serviceUrl (GUID: $guid): ${e.message}", e)
+                return false // If any service throws an exception, the overall test fails
+            }
+        }
+        return true // All services were accessible
     }
 }
