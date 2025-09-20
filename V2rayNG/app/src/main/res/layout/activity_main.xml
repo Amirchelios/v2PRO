@@ -27,8 +27,7 @@
                     android:layout_marginEnd="16dp"
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:contentDescription="@string/title_sub_update"
-                    android:src="@drawable/ic_cloud_download_24dp"
-                    android:visibility="gone" />
+                    android:src="@drawable/ic_cloud_download_24dp" />
             </androidx.appcompat.widget.Toolbar>
 
         </com.google.android.material.appbar.AppBarLayout>

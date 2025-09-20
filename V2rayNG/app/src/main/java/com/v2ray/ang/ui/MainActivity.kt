@@ -378,7 +378,7 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
 
         // Show the subscription update button only if there are subscriptions
         val (listId, _) = mainViewModel.getSubscriptions(this)
-        binding.btnUpdateSubscription.isVisible = !listId.isNullOrEmpty() && listId.size > 1
+        binding.btnUpdateSubscription.isVisible = true
 
         return super.onCreateOptionsMenu(menu)
     }
