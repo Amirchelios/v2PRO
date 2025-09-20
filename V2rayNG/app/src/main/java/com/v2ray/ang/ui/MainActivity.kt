@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.KeyEvent
 import android.view.Menu
+import com.v2ray.ang.BuildConfig
 import android.view.MenuItem
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -48,6 +49,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedListener {
+    private val TAG = "MainActivity" // Add TAG for logging
+
     private val binding by lazy {
         ActivityMainBinding.inflate(layoutInflater)
     }
@@ -126,10 +129,12 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        Log.d(TAG, "onCreate: start") // Log start of onCreate
         super.onCreate(savedInstanceState)
         setContentView(binding.root)
         title = getString(R.string.title_server)
         setSupportActionBar(binding.toolbar)
+        Log.d(TAG, "onCreate: end") // Log end of onCreate
 
         binding.btnUpdateSubscription.setOnClickListener {
             importConfigViaSub()
@@ -203,6 +208,7 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
 
     @SuppressLint("NotifyDataSetChanged")
     private fun setupViewModel() {
+        Log.d(TAG, "setupViewModel: start") // Log start of setupViewModel
         mainViewModel.updateListAction.observe(this) { index ->
             if (index >= 0) {
                 adapter.notifyItemChanged(index)
@@ -210,6 +216,7 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
                 adapter.notifyDataSetChanged()
             }
         }
+        Log.d(TAG, "setupViewModel: end") // Log end of setupViewModel
         mainViewModel.updateTestResultAction.observe(this) { setTestState(it) }
         mainViewModel.isRunning.observe(this) { isRunning ->
             adapter.isRunning = isRunning
@@ -245,9 +252,11 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
     }
 
     private fun initGroupTab() {
+        Log.d(TAG, "initGroupTab: start") // Log start of initGroupTab
         binding.tabGroup.removeOnTabSelectedListener(tabGroupListener)
         binding.tabGroup.removeAllTabs()
         binding.tabGroup.isVisible = false
+        Log.d(TAG, "initGroupTab: end") // Log end of initGroupTab
 
         val (listId, listRemarks) = mainViewModel.getSubscriptions(this)
         if (listId == null || listRemarks == null) {
@@ -334,8 +343,10 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
     }
 
     public override fun onResume() {
+        Log.d(TAG, "onResume: start") // Log start of onResume
         super.onResume()
         mainViewModel.reloadServerList()
+        Log.d(TAG, "onResume: end") // Log end of onResume
     }
 
     public override fun onPause() {
@@ -343,7 +354,9 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        Log.d(TAG, "onCreateOptionsMenu: start") // Log start of onCreateOptionsMenu
         menuInflater.inflate(R.menu.menu_main, menu)
+        Log.d(TAG, "onCreateOptionsMenu: end") // Log end of onCreateOptionsMenu
 
         val searchItem = menu.findItem(R.id.search_view)
         if (searchItem != null) {
@@ -444,6 +457,7 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
 
     private fun importBatchConfig(server: String?) {
         binding.pbWaiting.show()
+        Log.d(TAG, "importBatchConfig: start") // Log start of importBatchConfig
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
@@ -472,6 +486,7 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
                 withContext(Dispatchers.Main) {
                     mainViewModel.reloadServerList()
                 }
+                Log.d(TAG, "importBatchConfig: end") // Log end of importBatchConfig
             }
         }
     }
@@ -495,6 +510,7 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
      */
     private fun importConfigViaSub(): Boolean {
         binding.pbWaiting.show()
+        Log.d(TAG, "importConfigViaSub: start") // Log start of importConfigViaSub
 
         lifecycleScope.launch(Dispatchers.IO) {
             val count = mainViewModel.updateConfigViaSubAll()
@@ -507,6 +523,7 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
                     toastError(R.string.toast_failure)
                 }
                 binding.pbWaiting.hide()
+                Log.d(TAG, "importConfigViaSub: end") // Log end of importConfigViaSub
             }
         }
         return true
@@ -514,6 +531,7 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
 
     private fun exportAll() {
         binding.pbWaiting.show()
+        Log.d(TAG, "exportAll: start") // Log start of exportAll
         lifecycleScope.launch(Dispatchers.IO) {
             val ret = mainViewModel.exportAllServer()
             launch(Dispatchers.Main) {
@@ -522,6 +540,7 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
                 else
                     toastError(R.string.toast_failure)
                 binding.pbWaiting.hide()
+                Log.d(TAG, "exportAll: end") // Log end of exportAll
             }
         }
     }
@@ -530,12 +549,14 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         AlertDialog.Builder(this).setMessage(R.string.del_config_comfirm)
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 binding.pbWaiting.show()
+                Log.d(TAG, "delAllConfig: start") // Log start of delAllConfig
                 lifecycleScope.launch(Dispatchers.IO) {
                     val ret = mainViewModel.removeAllServer()
                     launch(Dispatchers.Main) {
                         mainViewModel.reloadServerList()
                         toast(getString(R.string.title_del_config_count, ret))
                         binding.pbWaiting.hide()
+                        Log.d(TAG, "delAllConfig: end") // Log end of delAllConfig
                     }
                 }
             }
@@ -549,12 +570,14 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         AlertDialog.Builder(this).setMessage(R.string.del_config_comfirm)
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 binding.pbWaiting.show()
+                Log.d(TAG, "delDuplicateConfig: start") // Log start of delDuplicateConfig
                 lifecycleScope.launch(Dispatchers.IO) {
                     val ret = mainViewModel.removeDuplicateServer()
                     launch(Dispatchers.Main) {
                         mainViewModel.reloadServerList()
                         toast(getString(R.string.title_del_duplicate_config_count, ret))
                         binding.pbWaiting.hide()
+                        Log.d(TAG, "delDuplicateConfig: end") // Log end of delDuplicateConfig
                     }
                 }
             }
@@ -568,12 +591,14 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         AlertDialog.Builder(this).setMessage(R.string.del_invalid_config_comfirm)
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 binding.pbWaiting.show()
+                Log.d(TAG, "delInvalidConfig: start") // Log start of delInvalidConfig
                 lifecycleScope.launch(Dispatchers.IO) {
                     val ret = mainViewModel.removeInvalidServer()
                     launch(Dispatchers.Main) {
                         mainViewModel.reloadServerList()
                         toast(getString(R.string.title_del_config_count, ret))
                         binding.pbWaiting.hide()
+                        Log.d(TAG, "delInvalidConfig: end") // Log end of delInvalidConfig
                     }
                 }
             }
@@ -585,11 +610,13 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
 
     private fun sortByTestResults() {
         binding.pbWaiting.show()
+        Log.d(TAG, "sortByTestResults: start") // Log start of sortByTestResults
         lifecycleScope.launch(Dispatchers.IO) {
             mainViewModel.sortByTestResults()
             launch(Dispatchers.Main) {
                 mainViewModel.reloadServerList()
                 binding.pbWaiting.hide()
+                Log.d(TAG, "sortByTestResults: end") // Log end of sortByTestResults
             }
         }
     }
