@@ -298,7 +298,8 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
                             toast(getString(R.string.toast_auto_selector_finding_best))
                             val bestProxyGuid = AutoSelectorManager.autoSelectBestProxy(this@MainActivity, nonAutoSelectorGuids)
                             if (bestProxyGuid != null) {
-                                V2RayServiceManager.startVService(this@MainActivity, bestProxyGuid)
+                                startV2Ray() // Use the existing startV2Ray function which uses MmkvManager.getSelectServer()
+                                mainViewModel.reloadServerList() // Refresh UI to reflect the new selection
                             } else {
                                 toastError(getString(R.string.toast_auto_selector_no_suitable_proxy))
                             }
